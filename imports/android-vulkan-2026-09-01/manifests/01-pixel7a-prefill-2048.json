@@ -1,0 +1,211 @@
+{
+  "collector_version": "import-observer-log/0.1",
+  "runner": {
+    "executable_name": "adb shell 'cd /data/local/tmp/llama && ./llama_main'",
+    "tokenizer_sha256": "82e9d31979e92ab929cd544440f129d9ecd797b69e327f80f17e1c50d5551b55",
+    "stdout_capture": "stdout filtered to the PyTorchObserver line; stderr discarded"
+  },
+  "log": "../logs/bench_android_pixel7a.log",
+  "benchmark": "prefill-2048",
+  "host": {
+    "platform": "android",
+    "device_class": "external",
+    "hostname": "3A021JEHN02756",
+    "device_model": "Pixel 7a",
+    "os": "Android 17 (CP2A.260705.006)",
+    "kernel": "6.1.157-android14-11-gbd23337e42e7-ab14791245",
+    "cpu_model": "GS201",
+    "cpu_count": 8,
+    "memory_bytes": 7828996096,
+    "accelerator": "Mali-G710",
+    "accelerator_driver": "v1.r54p3-00eac0.1848e3b066182d5bb5a345ab256f13ee",
+    "vulkan_api_version": "raw 4211031 (device), 4210688 (instance)",
+    "extra": {
+      "manufacturer": "Google",
+      "build_fingerprint": "google/lynx/lynx:17/CP2A.260705.006/15641320:user/release-keys",
+      "security_patch": "2026-07-05",
+      "soc_manufacturer": "Google",
+      "hardware": "lynx",
+      "rooted": false,
+      "adb_uid": "2000(shell)",
+      "clock_pinning": "not possible (retail, unrooted)",
+      "vulkan_driver_id": "9 (VK_DRIVER_ID_ARM_PROPRIETARY)",
+      "vulkan_driver_version_raw": 226504704,
+      "queried_via": "adb shell getprop / cmd gpu vkjson / uname / /proc/meminfo, after the benchmark"
+    }
+  },
+  "git": {
+    "commit_sha": "e4d02f41f7909e8ed5bf4a14ffc520d733453d9f",
+    "branch": "release/1.4",
+    "commit_timestamp": "2026-08-14T11:12:28-07:00",
+    "commit_subject": "[release/1.4] Fix CUDA shared library packaging (#21850)",
+    "dirty": true,
+    "modified_files": [
+      "backends/vulkan/runtime/graph/containers/SharedObject.cpp",
+      "backends/vulkan/runtime/graph/ops/impl/Squeeze.cpp",
+      "examples/models/llama/CMakeLists.txt"
+    ],
+    "notes": "Built on rocky-ryzen from /home/doremy/sarc-acl/release-1.4/executorch. Vulkan files add a missing #include <algorithm> (upstream pytorch/executorch#22422); the CMakeLists hunk links ETDump for a separate trace build and was present in the tree, but this runner was built with ETDump/DevTools OFF."
+  },
+  "executable": {
+    "path": "/home/doremy/sarc-acl/release-1.4/executorch/cmake-out-android/examples/models/llama/llama_main",
+    "sha256": "0781379b013f5f3810e5b543fe639214c76d76eb437f03883efa086fdac06ab8",
+    "note": "Verified: built 2026-09-01 15:53:28 -0700 with Android NDK r29, arm64-v8a, android-23, EXECUTORCH_BUILD_VULKAN=ON, no XNNPACK/QNN, ETDump OFF; pushed unchanged to /data/local/tmp/llama/llama_main on both phones (md5 e2c55ecaf1dad0ee94641e821b2646cf) before both logs were written; no rebuild since."
+  },
+  "prompt": {
+    "file": "../prompt_2048.txt",
+    "path_on_host": "/data/local/tmp/llama/prompt_2048.txt",
+    "sha256": "61a7273e2b8eb92ce7a53db4d6df43802a8412d55b6b1b56dbe9a11604c26104",
+    "token_count": 2048
+  },
+  "args_template": [
+    "--model_path={model_on_device}",
+    "--tokenizer_path={tokenizer}",
+    "--prompt_file={prompt_path}",
+    "--max_new_tokens=1"
+  ],
+  "models": {
+    "1B-8da4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-1b/exported/llama3_2-1b_vulkan_8da4w.pte",
+      "on_device_path": "/data/local/tmp/llama/llama3_2-1b_vulkan_8da4w.pte",
+      "sha256": "4a175c9ad248a620236f15452782df2d6401c6a5cb0005e774e51161e43a8607",
+      "tokenizer_path": "tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "8da4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "1B-4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-1b/exported/llama3_2-1b_vulkan_4w.pte",
+      "on_device_path": "/data/local/tmp/llama/llama3_2-1b_vulkan_4w.pte",
+      "sha256": "3221322ff2ab0ce044569ad0255d16e552301aac6e97024dc6e8389139af495d",
+      "tokenizer_path": "tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "3B-8da4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-3b/exported/llama3_2-3b_vulkan_8da4w.pte",
+      "on_device_path": "/data/local/tmp/llama/llama3_2-3b_vulkan_8da4w.pte",
+      "sha256": "a5b4803e4540d65ae48cfce27c0c35773913d86c7d3c9f4a3e137d3ed6b02f19",
+      "tokenizer_path": "tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "8da4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "3B-4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-3b/exported/llama3_2-3b_vulkan_4w.pte",
+      "on_device_path": "/data/local/tmp/llama/llama3_2-3b_vulkan_4w.pte",
+      "sha256": "cd23df856cca2c78df532cf857ff207d7caf600f3b5d74daa3dc82b48de49da8",
+      "tokenizer_path": "tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "8B-8da4w": {
+      "path": "/mnt/linux-share/models/llama-3.1-8b/exported/llama3_1-8b_vulkan_8da4w.pte",
+      "on_device_path": "/data/local/tmp/llama/llama3_1-8b_vulkan_8da4w.pte",
+      "sha256": "cfa15f352ad801e098703ac99ad2e389fb29b2d894d9ec88bcdb3d5323a55b90",
+      "tokenizer_path": "tokenizer.model",
+      "export": {
+        "model_class": "llama3_1",
+        "qmode": "8da4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "8B-4w": {
+      "path": "/mnt/linux-share/models/llama-3.1-8b/exported/llama3_1-8b_vulkan_4w.pte",
+      "on_device_path": "/data/local/tmp/llama/llama3_1-8b_vulkan_4w.pte",
+      "sha256": "c458b376f6ffc8f0a154dfd04fac8e40116b6d30c97e0550db9a3eeb9b6a6400",
+      "tokenizer_path": "tokenizer.model",
+      "export": {
+        "model_class": "llama3_1",
+        "qmode": "4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    }
+  },
+  "skip_tags": {},
+  "failures": [
+    {
+      "tag": "8B-8da4w",
+      "rep": 1,
+      "exit_status": "crashed",
+      "error_summary": "Device rebooted during the first 8B attempt: it vanished from `adb devices` and came back ~3 min later with /proc/uptime ~37 s. Almost certainly out-of-memory (7.65 GB RAM; the 1B model alone showed ~2.7 GB RSS). No thermal signal was checked."
+    },
+    {
+      "tag": "8B-8da4w",
+      "rep": 2,
+      "exit_status": "infrastructure_error",
+      "error_summary": "Device was offline after the reboot triggered by 8B-8da4w rep1; adb could not reach it, no attempt ran."
+    },
+    {
+      "tag": "8B-8da4w",
+      "rep": 3,
+      "exit_status": "infrastructure_error",
+      "error_summary": "Device was offline after the reboot triggered by 8B-8da4w rep1; adb could not reach it, no attempt ran."
+    },
+    {
+      "tag": "8B-4w",
+      "rep": 1,
+      "exit_status": "infrastructure_error",
+      "error_summary": "Device was offline after the reboot triggered by 8B-8da4w rep1; adb could not reach it, no attempt ran."
+    },
+    {
+      "tag": "8B-4w",
+      "rep": 2,
+      "exit_status": "infrastructure_error",
+      "error_summary": "Device was offline after the reboot triggered by 8B-8da4w rep1; adb could not reach it, no attempt ran."
+    },
+    {
+      "tag": "8B-4w",
+      "rep": 3,
+      "exit_status": "infrastructure_error",
+      "error_summary": "Device was offline after the reboot triggered by 8B-8da4w rep1; adb could not reach it, no attempt ran."
+    }
+  ],
+  "input_parameters": {
+    "backend": "vulkan",
+    "benchmark": "prefill-2048",
+    "executorch_checkout": "/home/doremy/sarc-acl/release-1.4/executorch (built on rocky-ryzen)",
+    "collected_by": "claude session benchmark-on-linux, 2026-09-01"
+  },
+  "notes": "12/18 attempts succeeded; both 8B configurations failed because the phone rebooted (see failures)."
+}

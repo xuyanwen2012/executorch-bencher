@@ -1,0 +1,3 @@
+=== 1B-8da4w rep1 ===
+PyTorchObserver {"prefill_token_per_sec":44.0252,"decode_token_per_sec":37.0995,"prompt_tokens":7,"generated_tokens":22,"model_load_start_ms":1788305081573,"model_load_end_ms":1788305082860,"inference_start_ms":1788305082861,"inference_end_ms":1788305083613,"prompt_eval_end_ms":1788305083020,"first_token_ms":1788305083020,"aggregate_sampling_time_ms":59,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== DONE ===

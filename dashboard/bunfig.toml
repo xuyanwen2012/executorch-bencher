@@ -1,0 +1,9 @@
+# Tailwind is compiled by bun-plugin-tailwind during `bun --hot dev.ts`.
+# Production builds go through build.ts (bare `bun build` ignores this
+# section and would emit unprocessed Tailwind directives).
+[serve.static]
+plugins = ["bun-plugin-tailwind"]
+env = "BUN_PUBLIC_*"
+
+[test]
+preload = ["./tests/happydom.ts"]

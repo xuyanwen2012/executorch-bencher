@@ -1,0 +1,37 @@
+=== 1B-8da4w rep1 ===
+PyTorchObserver {"prefill_token_per_sec":40.6977,"decode_token_per_sec":231.405,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297232257,"model_load_end_ms":1788297237190,"inference_start_ms":1788297237190,"inference_end_ms":1788297237604,"prompt_eval_end_ms":1788297237362,"first_token_ms":1788297237362,"aggregate_sampling_time_ms":26,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 1B-8da4w rep2 ===
+PyTorchObserver {"prefill_token_per_sec":269.231,"decode_token_per_sec":241.379,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297237706,"model_load_end_ms":1788297238199,"inference_start_ms":1788297238199,"inference_end_ms":1788297238457,"prompt_eval_end_ms":1788297238225,"first_token_ms":1788297238225,"aggregate_sampling_time_ms":29,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 1B-8da4w rep3 ===
+PyTorchObserver {"prefill_token_per_sec":269.231,"decode_token_per_sec":243.363,"prompt_tokens":7,"generated_tokens":55,"model_load_start_ms":1788297238566,"model_load_end_ms":1788297239056,"inference_start_ms":1788297239056,"inference_end_ms":1788297239308,"prompt_eval_end_ms":1788297239082,"first_token_ms":1788297239082,"aggregate_sampling_time_ms":18,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 1B-4w rep1 ===
+PyTorchObserver {"prefill_token_per_sec":33.9806,"decode_token_per_sec":197.183,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297239425,"model_load_end_ms":1788297243754,"inference_start_ms":1788297243754,"inference_end_ms":1788297244244,"prompt_eval_end_ms":1788297243960,"first_token_ms":1788297243960,"aggregate_sampling_time_ms":22,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 1B-4w rep2 ===
+PyTorchObserver {"prefill_token_per_sec":175,"decode_token_per_sec":201.439,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297244345,"model_load_end_ms":1788297244809,"inference_start_ms":1788297244809,"inference_end_ms":1788297245127,"prompt_eval_end_ms":1788297244849,"first_token_ms":1788297244849,"aggregate_sampling_time_ms":28,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 1B-4w rep3 ===
+PyTorchObserver {"prefill_token_per_sec":175,"decode_token_per_sec":166.667,"prompt_tokens":7,"generated_tokens":3,"model_load_start_ms":1788297245226,"model_load_end_ms":1788297245674,"inference_start_ms":1788297245674,"inference_end_ms":1788297245732,"prompt_eval_end_ms":1788297245714,"first_token_ms":1788297245714,"aggregate_sampling_time_ms":2,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 3B-8da4w rep1 ===
+PyTorchObserver {"prefill_token_per_sec":13.5397,"decode_token_per_sec":110.891,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297245920,"model_load_end_ms":1788297257854,"inference_start_ms":1788297257854,"inference_end_ms":1788297258876,"prompt_eval_end_ms":1788297258371,"first_token_ms":1788297258371,"aggregate_sampling_time_ms":18,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 3B-8da4w rep2 ===
+PyTorchObserver {"prefill_token_per_sec":137.255,"decode_token_per_sec":125,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297259001,"model_load_end_ms":1788297259930,"inference_start_ms":1788297259930,"inference_end_ms":1788297260429,"prompt_eval_end_ms":1788297259981,"first_token_ms":1788297259981,"aggregate_sampling_time_ms":20,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 3B-8da4w rep3 ===
+PyTorchObserver {"prefill_token_per_sec":134.615,"decode_token_per_sec":125.561,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297260549,"model_load_end_ms":1788297261496,"inference_start_ms":1788297261496,"inference_end_ms":1788297261994,"prompt_eval_end_ms":1788297261548,"first_token_ms":1788297261548,"aggregate_sampling_time_ms":21,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 3B-4w rep1 ===
+PyTorchObserver {"prefill_token_per_sec":21.875,"decode_token_per_sec":99.2908,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297262147,"model_load_end_ms":1788297271893,"inference_start_ms":1788297271893,"inference_end_ms":1788297272777,"prompt_eval_end_ms":1788297272213,"first_token_ms":1788297272213,"aggregate_sampling_time_ms":26,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 3B-4w rep2 ===
+PyTorchObserver {"prefill_token_per_sec":79.5455,"decode_token_per_sec":100.179,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297272893,"model_load_end_ms":1788297273773,"inference_start_ms":1788297273773,"inference_end_ms":1788297274420,"prompt_eval_end_ms":1788297273861,"first_token_ms":1788297273861,"aggregate_sampling_time_ms":23,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 3B-4w rep3 ===
+PyTorchObserver {"prefill_token_per_sec":79.5455,"decode_token_per_sec":100.179,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297274536,"model_load_end_ms":1788297275412,"inference_start_ms":1788297275412,"inference_end_ms":1788297276059,"prompt_eval_end_ms":1788297275500,"first_token_ms":1788297275500,"aggregate_sampling_time_ms":17,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 8B-8da4w rep1 ===
+PyTorchObserver {"prefill_token_per_sec":13.0112,"decode_token_per_sec":32.2209,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297276273,"model_load_end_ms":1788297303666,"inference_start_ms":1788297303666,"inference_end_ms":1788297305942,"prompt_eval_end_ms":1788297304204,"first_token_ms":1788297304204,"aggregate_sampling_time_ms":28,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 8B-8da4w rep2 ===
+PyTorchObserver {"prefill_token_per_sec":66.0377,"decode_token_per_sec":32.6912,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297306460,"model_load_end_ms":1788297308722,"inference_start_ms":1788297308722,"inference_end_ms":1788297310541,"prompt_eval_end_ms":1788297308828,"first_token_ms":1788297308828,"aggregate_sampling_time_ms":24,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 8B-8da4w rep3 ===
+PyTorchObserver {"prefill_token_per_sec":66.6667,"decode_token_per_sec":32.6721,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297311070,"model_load_end_ms":1788297313218,"inference_start_ms":1788297313218,"inference_end_ms":1788297315037,"prompt_eval_end_ms":1788297313323,"first_token_ms":1788297313323,"aggregate_sampling_time_ms":26,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 8B-4w rep1 ===
+PyTorchObserver {"prefill_token_per_sec":20.0573,"decode_token_per_sec":28.7918,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297315562,"model_load_end_ms":1788297337927,"inference_start_ms":1788297337927,"inference_end_ms":1788297340221,"prompt_eval_end_ms":1788297338276,"first_token_ms":1788297338276,"aggregate_sampling_time_ms":31,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 8B-4w rep2 ===
+PyTorchObserver {"prefill_token_per_sec":41.6667,"decode_token_per_sec":28.9705,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297340983,"model_load_end_ms":1788297343219,"inference_start_ms":1788297343219,"inference_end_ms":1788297345320,"prompt_eval_end_ms":1788297343387,"first_token_ms":1788297343387,"aggregate_sampling_time_ms":29,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== 8B-4w rep3 ===
+PyTorchObserver {"prefill_token_per_sec":41.1765,"decode_token_per_sec":28.8809,"prompt_tokens":7,"generated_tokens":56,"model_load_start_ms":1788297346075,"model_load_end_ms":1788297348357,"inference_start_ms":1788297348357,"inference_end_ms":1788297350466,"prompt_eval_end_ms":1788297348527,"first_token_ms":1788297348527,"aggregate_sampling_time_ms":29,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+=== BENCH ALL DONE ===

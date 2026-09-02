@@ -1,0 +1,2685 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ExecuTorch Bencher API",
+    "description": "Internal Android LLM benchmark collection and analysis service. Provides HTTP endpoints to ingest, store, and retrieve benchmark run results, content-addressed artifacts, and registered model assets.",
+    "version": "1.0"
+  },
+  "paths": {
+    "/api/v1/artifacts": {
+      "post": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Stream and store an artifact's content, deduplicating by SHA-256. The\nbody is the raw artifact bytes, streamed directly - **not** a multipart\nform. `kind` and `original_name` are query parameters.",
+        "operationId": "uploadArtifact",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "The artifact's kind. Determines whether the content is stored Zstandard-compressed (see `ArtifactKind`).",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ArtifactKind"
+            }
+          },
+          {
+            "name": "original_name",
+            "in": "query",
+            "description": "Caller-supplied display name, retained only as metadata.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Raw artifact bytes, streamed directly. Rejected once the stream exceeds the server's configured maximum artifact upload size.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/BinaryBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The artifact was stored, or an identical one (by SHA-256) already existed and was reused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`kind` is not a recognized artifact kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The upload exceeds the server's configured maximum artifact size.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/{id}/content": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Stream an artifact's content, decompressing transparently if it is\nstored Zstandard-compressed. The response body is the raw content with\nits stored media type - never a JSON-encoded string.",
+        "operationId": "getArtifactContent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The artifact's identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The artifact's content, streamed with its stored media type (or `application/octet-stream` if none was recorded).",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/BinaryBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No artifact exists with this ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The database record exists but the file is missing on disk.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/{id}/download": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Like `content`, but sets `Content-Disposition: attachment` with a safe\nfilename derived from the artifact's kind and content hash.",
+        "operationId": "downloadArtifact",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The artifact's identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The artifact's content as an attachment download.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/BinaryBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No artifact exists with this ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The database record exists but the file is missing on disk.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/{id}/metadata": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Fetch an artifact's metadata, including whether its content-addressed\nfile is currently available on disk.",
+        "operationId": "getArtifactMetadata",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The artifact's identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The artifact's metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactMetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No artifact exists with this ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Stream change notifications as Server-Sent Events. Each event has an\n`event` name, a process-scoped monotonically increasing `id`, and a\nJSON `data` payload:",
+        "description": "- `run.created` - a run was recorded; `data` is a `RunCreatedEvent`.\n- `artifact.created` - an artifact was stored; `data` is an\n  `ArtifactCreatedEvent`.\n- `model.registered` - a model asset was registered; `data` is a\n  `ModelRegisteredEvent`.\n\nA comment keep-alive is sent while idle (every 15 seconds by default).\nEvents are signals to re-fetch, not state: nothing is replayed after a\nreconnect, and the REST operations remain authoritative. A subscriber\nthat falls too far behind is disconnected and should reconnect and\nre-fetch.",
+        "operationId": "streamEvents",
+        "responses": {
+          "200": {
+            "description": "An open `text/event-stream`. Event names: `run.created` (data: `RunCreatedEvent`), `artifact.created` (data: `ArtifactCreatedEvent`), `model.registered` (data: `ModelRegisteredEvent`). Keep-alive comments are sent while idle; missed events are not replayed.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List registered model assets, optionally narrowed to one content hash.\nNot paginated - matches the current implementation's real, unpaginated\nresponse shape. See `specs/ingestion-service` - \"Service exposes model\nlookup by content hash\".",
+        "operationId": "listModels",
+        "parameters": [
+          {
+            "name": "sha256",
+            "in": "query",
+            "description": "Return only the model asset with this content hash (lowercase\n64-character hexadecimal SHA-256), so a collector that knows a\nmodel file's hash can find its asset ID. An empty list when no\nasset matches.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The matching model assets (all of them without a filter).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelAssetResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`sha256` is not a well-formed digest.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/register": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Register an external `.pte` model file by path, without copying it.\nRegistering a file whose SHA-256 already matches a registered model\nreuses the cached checksum and existing record rather than rehashing or\nduplicating it.",
+        "operationId": "registerModel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The model was registered, or an existing record with the same SHA-256 was reused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelAssetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The path does not exist or is not a regular file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/{id}": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Fetch a single registered model asset by ID.",
+        "operationId": "getModel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The model asset's identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The model asset.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelAssetResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No model asset exists with this ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/{id}/verify": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Trigger explicit full verification of a model's checksum: recalculates\nits SHA-256 from the current file content, updates its last-verified\ntimestamp, and reports whether it still matches the registered value.\nOnly implemented for external-mode models.",
+        "operationId": "verifyModel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The model asset's identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verification completed; the asset's cached checksum, availability, and last-verified timestamp were refreshed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelAssetResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No model asset exists with this ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Verification for managed-mode models is not yet implemented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Group runs into benchmark configurations and report each one's\nmedian/min/max/n throughput over succeeded runs, plus failure and\nthrottling counts. Rows are ordered by commit timestamp (falling back to\nfirst run time) descending. At most 500 rows are returned.",
+        "operationId": "getResults",
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "query",
+            "description": "One of the stable `Platform` values.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Platform"
+            }
+          },
+          {
+            "name": "device_class",
+            "in": "query",
+            "description": "One of the stable `DeviceClass` values.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DeviceClass"
+            }
+          },
+          {
+            "name": "device_serial",
+            "in": "query",
+            "description": "Android: device serial. Linux: hostname.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "model_asset_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "git_commit_sha",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "git_branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "git_dirty",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "sumd_driver_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bsp_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "host_accelerator",
+            "in": "query",
+            "description": "The accelerator as the runtime backend reports it.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prompt_sha256",
+            "in": "query",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the prompt.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Grouped results and filter facets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An invalid filter value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List runs newest first, with exact-match filters and opaque keyset\npagination. See `specs/ingestion-service` - \"Service exposes a\npaginated, filterable run listing\".",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size. Default 50, maximum 200.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 200,
+              "minimum": 1
+            },
+            "example": 50
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from a previous response's `next_cursor`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "description": "One of the stable `Platform` values.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Platform"
+            }
+          },
+          {
+            "name": "device_class",
+            "in": "query",
+            "description": "One of the stable `DeviceClass` values.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DeviceClass"
+            }
+          },
+          {
+            "name": "device_serial",
+            "in": "query",
+            "description": "Android: device serial. Linux: hostname.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "model_asset_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "git_commit_sha",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "git_branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "git_dirty",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "sumd_driver_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bsp_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "gpu_clock_mhz",
+            "in": "query",
+            "description": "GPU clock in MHz.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "mif_clock_mhz",
+            "in": "query",
+            "description": "MIF clock in MHz.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "int_clock_mhz",
+            "in": "query",
+            "description": "INT clock in MHz.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "host_accelerator",
+            "in": "query",
+            "description": "The accelerator as the runtime backend reports it (Vulkan device\nname on Linux, GPU on Android).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prompt_sha256",
+            "in": "query",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the prompt.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exit_status",
+            "in": "query",
+            "description": "One of the stable `ExitStatus` values.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ExitStatus"
+            }
+          },
+          {
+            "name": "correctness_result",
+            "in": "query",
+            "description": "One of the stable `CorrectnessResult` values.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CorrectnessResult"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of run summaries, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An unrecognized enum filter value, an out-of-range `limit`, or an undecodable `cursor`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Record one complete run attempt. The body mirrors the run response;\nenumerated fields take their documented string values. Validation\nfailures name the field in `details.field`; a run ID that already exists\nis rejected with `409 conflict` and left unchanged, so a client that\nlost a response may retry and then confirm with `GET /api/v1/runs/{id}`.\nSee `specs/ingestion-service` - \"Service accepts complete run records\nover HTTP\".",
+        "operationId": "createRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The run was stored; the body is what `GET /api/v1/runs/{id}` returns.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not valid JSON, a field is invalid, the snapshot does not match the platform and device class, or a referenced model asset or artifact does not exist. `details.field` names the field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A run with this ID already exists; it is unchanged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Fetch a run by ID, including its outcome and the artifacts/model it\nreferenced. See `specs/ingestion-service` - \"Run responses expose\nviewable artifact metadata\".",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The run's identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run was found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No run exists with this ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Report API and schema compatibility information.",
+        "operationId": "getVersion",
+        "responses": {
+          "200": {
+            "description": "Version and compatibility information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Reports whether the service is running and able to reach its database.",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "The service and its database connection are healthy."
+          },
+          "503": {
+            "description": "The service cannot reach its database."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiErrorBody": {
+        "type": "object",
+        "description": "The `error` object inside an [`ApiErrorResponse`].",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable, machine-readable failure category. Current values: `invalid_request`,\n`not_found`, `artifact_file_missing`, `payload_too_large`, `conflict`,\n`not_implemented`, `internal_error`. This field is an open string, not a\nclosed enum - new categories may be added as the API grows.",
+            "example": "invalid_request"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable description of the failure. Not guaranteed stable across\nversions or releases - match on `code`, not this text.",
+            "example": "gpu_clock_mhz must be greater than zero"
+          },
+          "details": {
+            "description": "Optional structured context about the failure, e.g. which field was invalid."
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque identifier correlating this error with server-side logs, when available."
+          }
+        }
+      },
+      "ApiErrorResponse": {
+        "type": "object",
+        "description": "The consistent JSON envelope every rejected or failed request responds with.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ApiErrorBody"
+          }
+        }
+      },
+      "ArtifactCreatedEvent": {
+        "type": "object",
+        "description": "`data` payload of an `artifact.created` event.",
+        "required": [
+          "id",
+          "kind",
+          "sha256",
+          "size_bytes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the content."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ArtifactKind": {
+        "type": "string",
+        "description": "The kinds of files the backend manages as content-addressed artifacts.\nSee `specs/benchmark-schema` - \"Large inputs and outputs are tracked as\ncontent-addressed artifacts\".",
+        "enum": [
+          "prompt",
+          "stdout",
+          "stderr",
+          "output",
+          "crash_log",
+          "logcat",
+          "correctness_report"
+        ]
+      },
+      "ArtifactMetadataResponse": {
+        "type": "object",
+        "description": "An artifact's full metadata, including where to fetch its content.",
+        "required": [
+          "id",
+          "kind",
+          "size_bytes",
+          "compression",
+          "sha256",
+          "created_at",
+          "available",
+          "content_url",
+          "download_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "original_filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "media_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compression": {
+            "$ref": "#/components/schemas/Compression"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the original,\nuncompressed content.",
+            "example": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the content-addressed file still exists on disk. `false`\nmeans the database record exists but the file is unavailable - see\nthe `artifact_file_missing` error on `content`/`download`."
+          },
+          "content_url": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string"
+          }
+        }
+      },
+      "ArtifactView": {
+        "type": "object",
+        "description": "A referenced artifact's viewable metadata: enough to know whether it is\npresent and how to retrieve it, without a separate lookup.",
+        "required": [
+          "id",
+          "kind",
+          "size_bytes",
+          "compression",
+          "available",
+          "content_url",
+          "download_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "original_filename": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Caller-supplied display name at upload time; never used to choose a\nstorage path. Absent when no name was supplied."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "media_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "MIME type captured from the upload's `Content-Type` header, if any."
+          },
+          "compression": {
+            "$ref": "#/components/schemas/Compression"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the content-addressed file still exists on disk. The\ndatabase record can outlive the file (see `artifact_file_missing`\nerrors on content/download)."
+          },
+          "content_url": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string"
+          }
+        }
+      },
+      "BinaryBody": {
+        "type": "string",
+        "format": "binary",
+        "description": "OpenAPI-only marker for a raw, unstructured binary body (streamed as\n`application/octet-stream`, not JSON and not a multipart form)."
+      },
+      "Compression": {
+        "type": "string",
+        "description": "How an artifact's stored bytes relate to its recorded content: `None`\nmeans the stored file *is* the original content; `Zstd` means the stored\nfile is a Zstandard-compressed encoding of it. The recorded `sha256`\nalways identifies the original, uncompressed content either way.",
+        "enum": [
+          "none",
+          "zstd"
+        ]
+      },
+      "CorrectnessResult": {
+        "type": "string",
+        "description": "A run's correctness-validation outcome, independent of `ExitStatus`. See\n`specs/benchmark-schema` - \"Correctness validation is tracked\nindependently of process exit status\".",
+        "enum": [
+          "passed",
+          "failed",
+          "not_checked",
+          "validator_error"
+        ]
+      },
+      "CreateRunRequest": {
+        "type": "object",
+        "description": "One complete run attempt, as a collector submits it. Field names,\nunits, nullability, and enumerations match `RunResponse`; the artifact\nreferences are IDs returned by `POST /api/v1/artifacts`, and\n`model_asset_id` comes from `GET /api/v1/models?sha256=...` or\n`POST /api/v1/models/register`.",
+        "required": [
+          "id",
+          "started_at",
+          "repetition",
+          "command_args",
+          "input_parameters",
+          "env_vars",
+          "env_allowlist_version",
+          "collector_version",
+          "platform",
+          "device_class",
+          "device_serial",
+          "git_commit_sha",
+          "git_dirty",
+          "model_asset_id",
+          "prompt_sha256",
+          "input_token_count",
+          "output_token_count",
+          "prefill_tokens_per_sec",
+          "exit_status",
+          "correctness_result"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Client-assigned run ID (a UUID; v7 recommended so IDs sort by\ntime). Posting the same ID twice is rejected with `409 conflict`."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null when the run never finished (crash, reboot, timeout)."
+          },
+          "repetition": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Zero-based repetition index within the run's batch."
+          },
+          "command_args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The exact command-line argument array."
+          },
+          "command_line": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable command line."
+          },
+          "input_parameters": {
+            "type": "object",
+            "description": "Caller-defined input parameters (a JSON object)."
+          },
+          "env_vars": {
+            "type": "object",
+            "description": "Captured environment-variable allowlist as a JSON object (`null` =\nunset, `\"\"` = empty)."
+          },
+          "env_allowlist_version": {
+            "type": "string"
+          },
+          "collector_version": {
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/Platform",
+            "description": "One of the stable `Platform` values."
+          },
+          "device_class": {
+            "$ref": "#/components/schemas/DeviceClass",
+            "description": "One of the stable `DeviceClass` values. `internal` requires the\ncomplete Android lab snapshot; `external` records what the host can\nreport."
+          },
+          "device_serial": {
+            "type": "string",
+            "description": "Android: device serial. Linux: hostname."
+          },
+          "device_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Product/model name as the host reports it."
+          },
+          "device_uptime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Host uptime at run start, in seconds."
+          },
+          "thermal_throttling": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "bsp_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sumd_driver_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "battery_charging": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Android only."
+          },
+          "initial_temperature_celsius": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Device temperature at run start, in degrees Celsius. Android only."
+          },
+          "max_temperature_celsius": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Maximum device temperature observed, in degrees Celsius. Android\nonly."
+          },
+          "gpu_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "GPU clock in MHz."
+          },
+          "mif_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "MIF (memory interface) clock in MHz."
+          },
+          "int_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "INT (interconnect) clock in MHz."
+          },
+          "host_os": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "OS release: distribution and version on Linux, Android release and\nbuild id on phones."
+          },
+          "host_kernel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Kernel release."
+          },
+          "host_cpu_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU model on Linux, SoC model on Android."
+          },
+          "host_cpu_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Logical CPU count."
+          },
+          "host_memory_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Total memory in bytes."
+          },
+          "host_accelerator": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accelerator the runtime backend executed on, as the backend\nreports it."
+          },
+          "host_accelerator_driver": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accelerator's driver version."
+          },
+          "git_commit_sha": {
+            "type": "string"
+          },
+          "git_dirty": {
+            "type": "boolean"
+          },
+          "git_branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "git_commit_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "git_commit_subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "executable_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the executable.\nNull when the binary's identity was not preserved; never a\nplaceholder."
+          },
+          "model_asset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "prompt_sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the prompt."
+          },
+          "input_token_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "output_token_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "prefill_tokens_per_sec": {
+            "type": "number",
+            "format": "double",
+            "description": "Prefill throughput in tokens per second (0 when nothing was\nmeasured)."
+          },
+          "decode_tokens_per_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Decode throughput in tokens per second. Null when the run recorded\nno decode measurement."
+          },
+          "exit_status": {
+            "$ref": "#/components/schemas/ExitStatus",
+            "description": "One of the stable `ExitStatus` values."
+          },
+          "correctness_result": {
+            "$ref": "#/components/schemas/CorrectnessResult",
+            "description": "One of the stable `CorrectnessResult` values."
+          },
+          "input_artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "output_artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "output_preview": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Truncated server-side to the configured preview length; the output\nartifact holds the complete text."
+          },
+          "stdout_artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "stderr_artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "crash_artifact_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "error_summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DeviceClass": {
+        "type": "string",
+        "description": "Whether a host is a lab device under full control or an external one.\nInternal devices (rooted development phones with SUMD/BSP/clock control)\nmust carry the rigorous Android snapshot; external hosts (retail phones,\nany Linux box) record whatever they can report. See\n`specs/benchmark-schema` - \"Host state is captured as a\nplatform-specific immutable snapshot\".",
+        "enum": [
+          "internal",
+          "external"
+        ]
+      },
+      "ExitStatus": {
+        "type": "string",
+        "description": "A run's process-level outcome. See `specs/benchmark-schema` - \"A run\ncaptures process-level outcome data\".",
+        "enum": [
+          "succeeded",
+          "crashed",
+          "timed_out",
+          "cancelled",
+          "infrastructure_error"
+        ]
+      },
+      "FacetsResponse": {
+        "type": "object",
+        "description": "Distinct filter values across all runs, ignoring the active filters.",
+        "required": [
+          "platforms",
+          "device_classes",
+          "device_serials",
+          "models",
+          "git_branches",
+          "sumd_driver_versions",
+          "bsp_versions",
+          "host_accelerators"
+        ],
+        "properties": {
+          "platforms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Platform"
+            }
+          },
+          "device_classes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceClass"
+            }
+          },
+          "device_serials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResultModelRef"
+            }
+          },
+          "git_branches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sumd_driver_versions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bsp_versions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "host_accelerators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MetricStatsResponse": {
+        "type": "object",
+        "description": "Median, minimum, maximum, and sample count of one throughput metric,\nin tokens per second, over succeeded runs.",
+        "required": [
+          "median",
+          "min",
+          "max",
+          "n"
+        ],
+        "properties": {
+          "median": {
+            "type": "number",
+            "format": "double",
+            "description": "Median in tokens per second."
+          },
+          "min": {
+            "type": "number",
+            "format": "double",
+            "description": "Minimum in tokens per second."
+          },
+          "max": {
+            "type": "number",
+            "format": "double",
+            "description": "Maximum in tokens per second."
+          },
+          "n": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of succeeded runs the statistic was computed over.",
+            "minimum": 0
+          }
+        }
+      },
+      "ModelAssetRef": {
+        "type": "object",
+        "description": "The model a run exercised, as referenced from a run summary.",
+        "required": [
+          "id",
+          "original_name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_name": {
+            "type": "string",
+            "description": "The registered `.pte` file's name."
+          }
+        }
+      },
+      "ModelAssetResponse": {
+        "type": "object",
+        "description": "A registered model asset's metadata.",
+        "required": [
+          "id",
+          "sha256",
+          "original_name",
+          "size_bytes",
+          "model_format",
+          "storage_mode",
+          "registered_at",
+          "available"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the model file.",
+            "example": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944"
+          },
+          "original_name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model_format": {
+            "type": "string"
+          },
+          "storage_mode": {
+            "$ref": "#/components/schemas/ModelStorageMode"
+          },
+          "external_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The server-side filesystem path this external model was registered\nfrom. `null` for managed-mode models. Currently returned to every\ncaller as-is - no authentication exists in this service to restrict\nit to authorized clients."
+          },
+          "registered_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_verified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Absent until the model has been explicitly verified at least once."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the registered file currently resolves on disk."
+          }
+        }
+      },
+      "ModelAssetSummary": {
+        "type": "object",
+        "description": "A run's referenced model asset, summarized for display alongside the run.",
+        "required": [
+          "id",
+          "sha256",
+          "original_name",
+          "available"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the model file.",
+            "example": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944"
+          },
+          "original_name": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the model is currently available (registered file still\nresolves on disk)."
+          }
+        }
+      },
+      "ModelRegisteredEvent": {
+        "type": "object",
+        "description": "`data` payload of a `model.registered` event.",
+        "required": [
+          "id",
+          "original_name",
+          "sha256"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the model file."
+          }
+        }
+      },
+      "ModelStorageMode": {
+        "type": "string",
+        "enum": [
+          "external",
+          "managed"
+        ]
+      },
+      "Platform": {
+        "type": "string",
+        "description": "The kind of host a run executed on. Selects which host-state snapshot a\nrun carries. See `specs/benchmark-schema` - \"Host state is captured as a\nplatform-specific immutable snapshot\".",
+        "enum": [
+          "android",
+          "linux"
+        ]
+      },
+      "RegisterModelRequest": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute path to an existing `.pte` file on the server's filesystem.\nExternal mode never copies this file - see\n`specs/artifact-storage` - \"External model assets are registered\nonce without copying\". Registering the same file's SHA-256 again\nreuses the cached checksum rather than rehashing or copying it.",
+            "example": "/data/models/llama-3-8b-instruct.pte"
+          }
+        }
+      },
+      "ResultModelRef": {
+        "type": "object",
+        "description": "The model a configuration exercised.",
+        "required": [
+          "id",
+          "original_name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_name": {
+            "type": "string",
+            "description": "The registered `.pte` file's name."
+          }
+        }
+      },
+      "ResultRowResponse": {
+        "type": "object",
+        "description": "One benchmark configuration and its statistics over all its runs.",
+        "required": [
+          "platform",
+          "device_class",
+          "device_serial",
+          "model_asset",
+          "git_commit_sha",
+          "git_dirty",
+          "prompt_sha256",
+          "input_token_count",
+          "total_runs",
+          "not_succeeded",
+          "correctness_failed",
+          "throttled",
+          "first_run_at",
+          "last_run_at"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/Platform"
+          },
+          "device_class": {
+            "$ref": "#/components/schemas/DeviceClass",
+            "description": "`internal`: lab device. `external`: retail phone or Linux box."
+          },
+          "device_serial": {
+            "type": "string",
+            "description": "Android: device serial. Linux: hostname."
+          },
+          "device_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Product/model name as the host reports it. Null when not captured."
+          },
+          "model_asset": {
+            "$ref": "#/components/schemas/ResultModelRef"
+          },
+          "git_commit_sha": {
+            "type": "string"
+          },
+          "git_dirty": {
+            "type": "boolean"
+          },
+          "sumd_driver_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lab Android devices only; null elsewhere."
+          },
+          "bsp_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lab Android devices only; null elsewhere."
+          },
+          "gpu_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "GPU clock in MHz. Lab Android devices only; null elsewhere."
+          },
+          "mif_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "MIF (memory interface) clock in MHz. Lab Android devices only; null\nelsewhere."
+          },
+          "int_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "INT (interconnect) clock in MHz. Lab Android devices only; null\nelsewhere."
+          },
+          "host_accelerator": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accelerator the runtime backend executed on. Null when not\ncaptured."
+          },
+          "prompt_sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the prompt.",
+            "example": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944"
+          },
+          "input_token_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "git_branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "git_commit_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "git_commit_subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prefill": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetricStatsResponse",
+                "description": "Prefill throughput statistics in tokens per second over succeeded\nruns. Null when no run of this configuration succeeded."
+              }
+            ]
+          },
+          "decode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetricStatsResponse",
+                "description": "Decode throughput statistics in tokens per second over succeeded\nruns that recorded a decode measurement. Null when none did."
+              }
+            ]
+          },
+          "total_runs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "not_succeeded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Runs whose exit status is not `succeeded`.",
+            "minimum": 0
+          },
+          "correctness_failed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Succeeded runs whose correctness result is `failed`.",
+            "minimum": 0
+          },
+          "throttled": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Runs that reported thermal throttling.",
+            "minimum": 0
+          },
+          "first_run_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_run_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ResultsResponse": {
+        "type": "object",
+        "description": "Grouped results: one row per configuration, newest commit first.",
+        "required": [
+          "rows",
+          "truncated",
+          "facets"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResultRowResponse"
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when more than the maximum number of configurations matched\nand only the first 500 are returned."
+          },
+          "facets": {
+            "$ref": "#/components/schemas/FacetsResponse"
+          }
+        }
+      },
+      "RunCreatedEvent": {
+        "type": "object",
+        "description": "`data` payload of a `run.created` event: the run's listing summary.",
+        "required": [
+          "id",
+          "started_at",
+          "repetition",
+          "platform",
+          "device_class",
+          "device_serial",
+          "model_asset_id",
+          "model_original_name",
+          "git_commit_sha",
+          "git_dirty",
+          "exit_status",
+          "correctness_result",
+          "prefill_tokens_per_sec"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "repetition": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/Platform"
+          },
+          "device_class": {
+            "$ref": "#/components/schemas/DeviceClass"
+          },
+          "device_serial": {
+            "type": "string"
+          },
+          "device_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_asset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_original_name": {
+            "type": "string"
+          },
+          "git_commit_sha": {
+            "type": "string"
+          },
+          "git_dirty": {
+            "type": "boolean"
+          },
+          "git_branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exit_status": {
+            "$ref": "#/components/schemas/ExitStatus"
+          },
+          "correctness_result": {
+            "$ref": "#/components/schemas/CorrectnessResult"
+          },
+          "prefill_tokens_per_sec": {
+            "type": "number",
+            "format": "double",
+            "description": "Prefill throughput in tokens per second."
+          },
+          "decode_tokens_per_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Decode throughput in tokens per second; null when not recorded."
+          }
+        }
+      },
+      "RunListResponse": {
+        "type": "object",
+        "description": "One page of run summaries, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunSummaryResponse"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque cursor for the next page. Null when no more runs match."
+          }
+        }
+      },
+      "RunResponse": {
+        "type": "object",
+        "description": "A run's complete recorded record: metadata, device state, performance\nconfiguration, build/workload identity, results, and the artifacts and\nmodel it referenced. Flat: every field is top-level, named as recorded,\nwith units in descriptions. See `specs/ingestion-service` - \"Single-run\nresponses expose the complete recorded run\".",
+        "required": [
+          "id",
+          "started_at",
+          "exit_status",
+          "correctness_result",
+          "repetition",
+          "command_args",
+          "input_parameters",
+          "env_vars",
+          "env_allowlist_version",
+          "collector_version",
+          "platform",
+          "device_class",
+          "device_serial",
+          "git_commit_sha",
+          "git_dirty",
+          "prompt_sha256",
+          "input_token_count",
+          "output_token_count",
+          "prefill_tokens_per_sec"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Absent while the run is still in progress."
+          },
+          "exit_status": {
+            "$ref": "#/components/schemas/ExitStatus"
+          },
+          "correctness_result": {
+            "$ref": "#/components/schemas/CorrectnessResult",
+            "description": "Independent of `exit_status` - a run can succeed but fail\ncorrectness validation, or vice versa."
+          },
+          "output_preview": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the run produced no output or has not finished."
+          },
+          "model_asset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModelAssetSummary"
+              }
+            ]
+          },
+          "input_artifact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactView"
+              }
+            ]
+          },
+          "output_artifact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactView"
+              }
+            ]
+          },
+          "stdout_artifact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactView"
+              }
+            ]
+          },
+          "stderr_artifact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactView"
+              }
+            ]
+          },
+          "crash_artifact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactView"
+              }
+            ]
+          },
+          "repetition": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Zero-based repetition index within the run's batch."
+          },
+          "command_args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The exact command-line argument array, as a JSON array of strings."
+          },
+          "command_line": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable command line. Absent when not recorded."
+          },
+          "input_parameters": {
+            "type": "object",
+            "description": "Caller-defined input parameters, as recorded JSON."
+          },
+          "env_vars": {
+            "type": "object",
+            "description": "Captured environment-variable allowlist, as a JSON object mapping\nvariable name to its value (`null` = unset, `\"\"` = empty)."
+          },
+          "env_allowlist_version": {
+            "type": "string"
+          },
+          "collector_version": {
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/Platform"
+          },
+          "device_class": {
+            "$ref": "#/components/schemas/DeviceClass",
+            "description": "`internal`: lab device under full control, rigorous Android snapshot\nrequired. `external`: retail phone or Linux box recording what it can\nreport; unavailable fields are null."
+          },
+          "device_serial": {
+            "type": "string",
+            "description": "Android: device serial. Linux: hostname."
+          },
+          "device_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Product/model name as the host reports it. Null when not captured."
+          },
+          "device_uptime_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Host uptime at run start, in seconds. Null when not captured."
+          },
+          "thermal_throttling": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Null when not captured."
+          },
+          "bsp_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lab Android devices only; null elsewhere."
+          },
+          "sumd_driver_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lab Android devices only; null elsewhere."
+          },
+          "battery_charging": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Android only; null when not captured."
+          },
+          "initial_temperature_celsius": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Device temperature at run start, in degrees Celsius. Android only;\nnull when not captured."
+          },
+          "max_temperature_celsius": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Maximum device temperature observed during the run, in degrees\nCelsius. Android only; null when not captured."
+          },
+          "gpu_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "GPU clock in MHz. Lab Android devices only; null elsewhere."
+          },
+          "mif_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "MIF (memory interface) clock in MHz. Lab Android devices only; null\nelsewhere."
+          },
+          "int_clock_mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "INT (interconnect) clock in MHz. Lab Android devices only; null\nelsewhere."
+          },
+          "host_os": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "OS release: distribution and version on Linux, Android release and\nbuild id on phones. Null when not captured."
+          },
+          "host_kernel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Kernel release. Null when not captured."
+          },
+          "host_cpu_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU model on Linux, SoC model on Android. Null when not captured."
+          },
+          "host_cpu_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Logical CPU count. Null when not captured."
+          },
+          "host_memory_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Total memory in bytes. Null when not captured."
+          },
+          "host_accelerator": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accelerator the runtime backend executed on, as the backend\nreports it (Vulkan device on Linux, GPU on Android). Null when not\ncaptured."
+          },
+          "host_accelerator_driver": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accelerator's driver version. Null when not captured."
+          },
+          "git_commit_sha": {
+            "type": "string"
+          },
+          "git_dirty": {
+            "type": "boolean"
+          },
+          "git_branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Git branch the run was made from. Absent when not recorded."
+          },
+          "git_commit_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The commit's timestamp. Absent when not recorded."
+          },
+          "git_commit_subject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The commit's subject line. Absent when not recorded."
+          },
+          "executable_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the executable.\nNull when the binary's identity was not preserved.",
+            "example": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944"
+          },
+          "prompt_sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the prompt.",
+            "example": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944"
+          },
+          "input_token_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "output_token_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "prefill_tokens_per_sec": {
+            "type": "number",
+            "format": "double",
+            "description": "Prefill throughput in tokens per second."
+          },
+          "decode_tokens_per_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Decode throughput in tokens per second. Null when the run recorded\nno decode measurement."
+          },
+          "error_summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Short description of the failure. Absent when the run did not fail."
+          }
+        }
+      },
+      "RunSummaryResponse": {
+        "type": "object",
+        "description": "One run's list-view summary: identity, configuration, outcome, and\nthroughput. Fetch `GET /api/v1/runs/{id}` for the complete record.",
+        "required": [
+          "id",
+          "started_at",
+          "repetition",
+          "platform",
+          "device_class",
+          "device_serial",
+          "git_commit_sha",
+          "git_dirty",
+          "model_asset",
+          "exit_status",
+          "correctness_result",
+          "prefill_tokens_per_sec"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Absent while the run is still in progress."
+          },
+          "repetition": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/Platform"
+          },
+          "device_class": {
+            "$ref": "#/components/schemas/DeviceClass",
+            "description": "`internal`: lab device with the rigorous snapshot. `external`:\nretail phone or Linux box recording what it can report."
+          },
+          "device_serial": {
+            "type": "string",
+            "description": "Android: device serial. Linux: hostname."
+          },
+          "device_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Product/model name as the host reports it. Null when not captured."
+          },
+          "git_commit_sha": {
+            "type": "string"
+          },
+          "git_dirty": {
+            "type": "boolean"
+          },
+          "git_branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the collector did not record it."
+          },
+          "sumd_driver_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lab Android devices only; null elsewhere."
+          },
+          "bsp_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lab Android devices only; null elsewhere."
+          },
+          "host_accelerator": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accelerator the backend executed on. Null when not captured."
+          },
+          "model_asset": {
+            "$ref": "#/components/schemas/ModelAssetRef"
+          },
+          "exit_status": {
+            "$ref": "#/components/schemas/ExitStatus"
+          },
+          "correctness_result": {
+            "$ref": "#/components/schemas/CorrectnessResult"
+          },
+          "prefill_tokens_per_sec": {
+            "type": "number",
+            "format": "double",
+            "description": "Prefill throughput in tokens per second."
+          },
+          "decode_tokens_per_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Decode throughput in tokens per second. Null when the run recorded\nno decode measurement."
+          },
+          "thermal_throttling": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Null when the platform's collector did not capture it."
+          }
+        }
+      },
+      "UploadResponse": {
+        "type": "object",
+        "description": "Result of a successful artifact upload.",
+        "required": [
+          "id",
+          "sha256",
+          "size_bytes",
+          "compression"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase 64-character hexadecimal SHA-256 digest of the original,\nuncompressed content.",
+            "example": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "compression": {
+            "$ref": "#/components/schemas/Compression",
+            "description": "How the stored bytes relate to the original content. `sha256` and\n`size_bytes` always describe the original, uncompressed content\neither way."
+          }
+        }
+      },
+      "VersionResponse": {
+        "type": "object",
+        "description": "API and schema compatibility information.",
+        "required": [
+          "api_version",
+          "server_version",
+          "minimum_runner_version",
+          "schema_version"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "description": "The documented OpenAPI contract's version. Bumped by hand when the\ncontract changes in a way clients should notice.",
+            "example": "1.1"
+          },
+          "server_version": {
+            "type": "string",
+            "description": "The running server binary's Cargo package version\n(`CARGO_PKG_VERSION`), not duplicated by hand.",
+            "example": "0.1.0"
+          },
+          "minimum_runner_version": {
+            "type": "string",
+            "description": "The oldest Python benchmark runner version known to be compatible\nwith this server. Maintained by hand; no runner exists yet to\nvalidate against.",
+            "example": "0.1.0"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Increments only on a backward-incompatible change to the run/\nartifact/model database or contract schema.",
+            "example": 1,
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "system",
+      "description": "Service health, version, and API documentation."
+    },
+    {
+      "name": "runs",
+      "description": "Benchmark run submission and retrieval."
+    },
+    {
+      "name": "models",
+      "description": "Model asset registration and verification."
+    },
+    {
+      "name": "artifacts",
+      "description": "Content-addressed artifact upload and retrieval."
+    },
+    {
+      "name": "events",
+      "description": "Live change notifications as Server-Sent Events."
+    }
+  ]
+}

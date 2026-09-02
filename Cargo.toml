@@ -1,0 +1,36 @@
+[package]
+name = "executorch-bencher"
+version = "0.1.0"
+edition = "2024"
+default-run = "executorch-bencher"
+
+[[bin]]
+name = "gen-openapi"
+path = "src/bin/gen_openapi.rs"
+
+[dependencies]
+async-compression = { version = "0.4.19", features = ["tokio", "zstd"] }
+axum = "0.8.9"
+base64 = "0.23.1"
+chrono = { version = "0.4.42", features = ["serde"] }
+futures-util = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7.17", features = ["io"] }
+tower-http = { version = "0.7.1", features = ["fs"] }
+utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "preserve_order", "uuid"] }
+utoipa-axum = "0.2.0"
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+uuid = { version = "1.26.0", features = ["v7", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.24.0"
+tower = { version = "0.5.3", features = ["util"] }
+
+[[bin]]
+name = "import-observer-log"
+path = "src/bin/import_observer_log.rs"

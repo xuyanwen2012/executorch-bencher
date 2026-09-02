@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/* Typeface: the IBM Plex superfamily, bundled locally so the dashboard
+   needs no network at runtime. Latin subsets only, one file per weight.
+   Sans for prose, Condensed for column heads and labels (it buys width
+   back in a 13-column table), Mono for every measured or identifying
+   value so digits and hashes align. */
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-sans-condensed/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-cond: "IBM Plex Sans Condensed", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Paper and ink. The page sits on a cool grey; every reading surface
+     (table, panel, card) is white, so data always reads as "on paper". */
+  --color-shell: #eef1f4;
+  --color-paper: #ffffff;
+  --color-wash: #f7f9fa;
+  --color-ink: #10161c;
+  --color-ink-2: #4b5663;
+  --color-ink-3: #79838f;
+  --color-rule: #e2e7ec;
+  --color-rule-strong: #c6cfd8;
+
+  /* The two throughput phases get opposed hues (blue / sienna): they are
+     distinguishable for every common form of colour-vision deficiency. */
+  --color-prefill: #0f4f7d;
+  --color-prefill-soft: #e6eef5;
+  --color-decode: #8f4610;
+  --color-decode-soft: #f6ece3;
+
+  /* Status semantics. One hue per meaning, used nowhere else. */
+  --color-danger: #a4231a;
+  --color-danger-soft: #fbeceb;
+  --color-warn: #855400;
+  --color-warn-soft: #fbf1de;
+  --color-dirty: #67399c;
+  --color-dirty-soft: #f1ecf9;
+  --color-ok: #1a6647;
+  --color-ok-soft: #e8f2ed;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  @apply bg-shell text-ink antialiased;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Digits never reflow between rows. */
+.tabular,
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Column heads, group labels, and the wordmark share one voice. */
+.eyebrow {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.panel {
+  @apply rounded-sm border border-rule bg-paper;
+}
+
+/* Keyboard focus is always visible and always the same shape. */
+:where(a, button, select, input, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-prefill);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* One truncation idiom: clip to the cell, full value in the title. */
+.clip {
+  @apply block max-w-full overflow-hidden text-ellipsis whitespace-nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

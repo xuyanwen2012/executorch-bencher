@@ -1,0 +1,5 @@
+/target
+/data
+/dashboard/node_modules
+/dashboard/dist
+__pycache__/

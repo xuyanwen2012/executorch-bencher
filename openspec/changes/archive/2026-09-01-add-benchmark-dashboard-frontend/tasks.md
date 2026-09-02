@@ -1,0 +1,63 @@
+## 1. Backend: git commit metadata
+
+- [x] 1.1 Add migration `add_run_git_metadata` (up: `ALTER TABLE runs ADD COLUMN git_branch TEXT`, `git_commit_timestamp TEXT`, `git_commit_subject TEXT`; down: the three `DROP COLUMN`s) and verify `tests/migrations.rs` passes and a new test applies the up migration to a database that already holds a run and reads it back with null metadata.
+- [x] 1.2 Add `git_branch: Option<String>`, `git_commit_timestamp: Option<DateTime<Utc>>`, `git_commit_subject: Option<String>` to `NewRun`/`Run`, `insert_run`, and `row_to_run`; update `tests/common/mod.rs` and `examples/e2e_insert_retrieve.rs` to set them; verify a round-trip test with values and one with `None` both pass.
+
+## 2. Backend: run listing
+
+- [x] 2.1 Add `runs::RunListFilter` (device_serial, model_asset_id, git_commit_sha, git_branch, git_dirty, sumd_driver_version, bsp_version, gpu/mif/int clocks, prompt_sha256, exit_status, correctness_result) and `runs::list_runs(filter, limit, cursor)` using `sqlx::QueryBuilder`, ordering `started_at DESC, id DESC`, `LEFT JOIN model_assets` for `original_name`; verify with a unit test inserting runs at distinct start times and reading them back newest first.
+- [x] 2.2 Add opaque cursor encode/decode (base64url of `"<started_at RFC3339>|<uuid>"`, `base64` crate) with a typed error; verify unit tests for round-trip and rejection of garbage, truncated, and non-base64 input.
+- [x] 2.3 Add `GET /api/v1/runs` (`listRuns`, tag `runs`) with `limit` (default 50, max 200), `cursor`, and all filters, returning `{ "items": [RunSummary], "next_cursor": string|null }` where `RunSummary` has id, started_at, finished_at, repetition, device_serial, git_commit_sha, git_dirty, git_branch, sumd_driver_version, bsp_version, model_asset {id, original_name}, exit_status, correctness_result, prefill_tokens_per_sec, decode_tokens_per_sec (nullable), thermal_throttling; map bad `limit`, unknown enum values, and bad cursors to `invalid_request`; verify with an integration test that lists seeded runs newest first and returns `next_cursor` only when more remain.
+- [x] 2.4 Add integration tests for conjunctive filters (device + exit status), for a full configuration-key filter returning exactly one configuration's runs, for each rejected input returning the envelope with `invalid_request`, and for paging to exhaustion with a run inserted between page requests (every run exactly once, in order).
+
+## 3. Backend: expanded run response
+
+- [x] 3.1 Extend `RunResponse` with repetition, command_args/input_parameters/env_vars as `serde_json::Value`, command_line, env_allowlist_version, collector_version, device_serial, bsp_version, sumd_driver_version, device_uptime_seconds, battery_charging, initial/max temperature, thermal_throttling, gpu/mif/int clocks, git_commit_sha, git_dirty, git_branch, git_commit_timestamp, git_commit_subject, executable_sha256, prompt_sha256, token counts, prefill/decode throughput, error_summary, keeping every existing field unchanged and adding unit/nullability wording to schema attributes; verify with an integration test that fetches a seeded run and asserts each new value round-trips with the JSON columns as structured JSON.
+
+## 4. Backend: grouped results
+
+- [x] 4.1 Add `src/results.rs`: `ResultsFilter` (device_serial, model_asset_id, git_commit_sha, git_branch, git_dirty, sumd_driver_version, bsp_version, prompt_sha256), a single filtered `SELECT` of key + metric + flag columns joined to `model_assets`, a Rust fold into `BTreeMap<ConfigKey, Accumulator>`, median/min/max/n for prefill and (over non-null) decode over succeeded runs, counts (total, not_succeeded, correctness_failed, throttled), earliest/latest started_at, ordering by `COALESCE(commit timestamp, earliest started_at)` desc then model name then device, and truncation at 500 with a flag; verify with unit tests for the median scenario (100,110,120,130,900 → 120), succeeded-only statistics, an all-failed configuration (null stats, n 0), dirty/clean separation, and ordering with and without commit timestamps.
+- [x] 4.2 Add `results::facets` returning distinct device serials, models (id + original_name), branches, SUMD driver versions, and BSP versions across all runs unfiltered; verify with a unit test that facets ignore the filter.
+- [x] 4.3 Add `src/results_api.rs` with `GET /api/v1/results` (`getResults`, tag `runs`) taking the filters and returning `{ "rows": [ResultRow], "truncated": bool, "facets": {...} }` with unit and nullability wording on every statistic; map unknown filter values to `invalid_request`; verify with an integration test against seeded runs covering the row fields, facets, and the truncation flag (set the cap via a test-only constant or seed 501 keys).
+
+## 5. Backend: static serving, contract, docs
+
+- [x] 5.1 Add `tower-http` (`fs`) to `Cargo.toml`; add `Config.dashboard_dist: Option<PathBuf>` from `DASHBOARD_DIST` (unset → `None`, set-but-empty → error), with startup validation failing when set but not a readable directory containing `index.html`; verify config unit tests for unset, valid, missing-dir, and empty-value cases.
+- [x] 5.2 In `http::router`, attach `ServeDir` with a `ServeFile(index.html)` not-found fallback as the fallback service only when configured; verify integration tests with a temp dir: `/` and `/runs/<uuid>` return `index.html`, an asset path returns the asset, `/health` and `/api/v1/version` unchanged, and with it unset `/` still 404s.
+- [x] 5.3 Update `tests/openapi_contract.rs`: exact expected-field-set assertion for `RunResponse`; presence assertions for `GET /api/v1/runs` (limit, cursor, filters) and `GET /api/v1/results` (filters, rows/facets/truncated schema); unit-wording assertions for GPU clock (MHz) and initial temperature (Celsius); nullability of `decode_tokens_per_sec` in `RunSummary`/`RunResponse` and of decode statistics in `ResultRow`; verify `cargo test --test openapi_contract` passes.
+- [x] 5.4 Bump `API_VERSION` to `"1.1"`, run `cargo run --bin gen-openapi`, update the example in `docs/api.md`; verify `cargo test --test openapi_drift` and the version contract test pass.
+
+## 6. Dashboard: toolchain
+
+- [x] 6.1 Create `dashboard/` from `bun init --react=tailwind`, then trim: remove sample API routes/components, pin `typescript@5.x` and drop the `^7` peer entry, remove the unused `tailwindcss` package, pin `react`, `react-dom`, `react-router`, `@tanstack/react-query`, `openapi-fetch`, `bun-plugin-tailwind`, dev deps `@types/react`, `@types/react-dom`, `@types/bun`, `openapi-typescript`, `@happy-dom/global-registrator`; strict `tsconfig.json`; `src/index.html`, `src/main.tsx` placeholder, `src/app.css`; add `dashboard/node_modules` and `dashboard/dist` to `.gitignore`; verify `bun install` succeeds and `bun.lock` is present.
+- [x] 6.2 Add `dev.ts` (`Bun.serve` on `PORT` default 3001: `/api/*` and `/health` routes forwarding to `BACKEND_URL` default `http://127.0.0.1:3000` with method, headers, streamed body, `redirect: "manual"`; HTML import for everything else, HMR on) and `build.ts` (`Bun.build` with `bun-plugin-tailwind`, minify, `outdir: dist`) plus scripts `dev`, `build`, `check`, `test`, `generate-api`; verify by running the backend and `bun run dev`, loading the placeholder with Tailwind styles applied, `curl localhost:3001/health` returning the backend's response, and a proxied `/download` keeping `Content-Disposition`.
+- [x] 6.3 Verify `bun run build` writes `dist/index.html` plus hashed assets whose CSS contains no raw `@apply`/`@tailwind`, and that the backend started with `DASHBOARD_DIST=dashboard/dist` serves the placeholder at `http://localhost:3000/`.
+
+## 7. Dashboard: typed API client
+
+- [x] 7.1 Implement `bun run generate-api` (`openapi-typescript ../openapi/openapi.json -o src/api/schema.d.ts`) and `src/api/client.ts`; run it and check in `schema.d.ts`; verify `tsc --noEmit` accepts typed calls to `/api/v1/results`, `/api/v1/runs`, and `/api/v1/runs/{id}`.
+- [x] 7.2 Add `scripts/check-api-drift.ts` (regenerate to a temp path, byte-compare, non-zero exit with a "run `bun run generate-api`" message) and wire `bun run check` to run `tsc --noEmit` then the script; verify it passes in sync and fails after a deliberate edit to `openapi/openapi.json` (then revert).
+- [x] 7.3 Add `src/api/errors.ts` normalizing an `openapi-fetch` result into data, a typed `{ code, message }` from the envelope, or an `unreachable` marker; verify `bun test` unit tests for all three cases.
+
+## 8. Dashboard: results page
+
+- [x] 8.1 Implement `lib/format.ts` (short SHA with dirty marker, tok/s with one decimal and "median (min–max) n=" rendering, local time with UTC `title`, byte sizes, absent markers), `lib/filters.ts` (results and runs filter sets to/from `URLSearchParams`, including the full configuration key), and `lib/collapse.ts` (given rows and key columns, return varying columns and shared values); verify `bun test` unit tests including URL round-trip, null handling, and collapse cases (all-equal, one varies, empty rows).
+- [x] 8.2 Implement `ResultsPage` at `/`: `FilterBar` (device, model, branch, driver, BSP, dirty) populated from `facets`, a prefill/decode emphasis switch defaulting to prefill, `SharedConfigLine` plus `ResultsTable` using `collapse.ts` with a show-all toggle, commit cell (short SHA, branch, subject, time, `+dirty`), count/failure/throttle badges, absent markers for null statistics, truncation notice, and row links to `/runs?<full key>`; verify against a backend seeded with the e2e example (extended to insert several runs across two commits and one dirty run): one row per key, collapsed constant columns, filter → URL round-trip, and the row link opening the runs page with exactly the contributing runs.
+- [x] 8.3 Add empty states ("no runs recorded yet" vs "no configurations match these filters"), loading, and `ErrorState` with retry; verify each with an empty database, an unmatched filter, and the backend stopped.
+
+## 9. Dashboard: runs page
+
+- [x] 9.1 Implement `RunsPage` at `/runs`: `FilterBar` (device, model from `/api/v1/models`, commit, branch, dirty, driver, BSP, exit status, correctness) bound to URL search params and accepting the extra key filters from a results link, `RunsTable` with the required columns newest first, and "Load more" via `useInfiniteQuery` following `next_cursor`; verify filtering narrows the list, the URL reloads to the same view, a null decode shows "not recorded", and load-more continues without duplicates.
+- [x] 9.2 Add the two empty states, loading, and `ErrorState`; verify each as in 8.3.
+
+## 10. Dashboard: run detail page
+
+- [x] 10.1 Implement `RunDetailPage` at `/runs/:id` with `FieldGroup`s for run metadata, device state, performance configuration (MHz), build and workload identity (including branch, commit time, subject), and results (°C, tok/s), absent markers for nulls, JSON fields pretty-printed, local + UTC timestamps, and the model summary; verify by opening a seeded run's URL directly and checking every API field appears under its group.
+- [x] 10.2 Implement `ArtifactCard` for the five artifact slots (kind, filename, size, media type, compression, availability, download link, inline view for `text/*` ≤ 256 KiB, download-only otherwise, no links when unavailable); verify with a small text stdout artifact (inline works), a large or binary artifact (download only), and an artifact deleted on disk (unavailable, no links).
+- [x] 10.3 Handle `not_found` ("run not found" with a link to `/runs`) and generic/unreachable errors via `ErrorState`; verify with a random UUID and with the backend stopped.
+
+## 11. Docs and final verification
+
+- [x] 11.1 Update `README.md` (Bun prerequisite, `bun install`/`dev`/`build`/`check`/`test`, the two-command regeneration habit, `DASHBOARD_DIST`, the three pages) and `docs/api.md` (move results, run listing, and expanded run fields to the implemented list; keep create/finalize/progress/events as gaps; note the static fallback ordering); verify the documented commands run as written.
+- [x] 11.2 Run and confirm all pass: `cargo test`, `cargo clippy --all-targets`, `cargo run --bin gen-openapi` (no diff); in `dashboard/`: `bun install`, `bun run generate-api` (no diff), `bun run check`, `bun test`, `bun run build`.
+- [x] 11.3 End-to-end walkthrough: seed with `cargo run --example e2e_insert_retrieve`, start the backend with `DASHBOARD_DIST=dashboard/dist`, open `http://localhost:3000/`, and verify results → filter → row link → runs → detail → artifact download and inline view from the single process; then repeat results and detail through `bun run dev` on port 3001 to verify the proxy path.

@@ -1,0 +1,153 @@
+{
+  "collector_version": "import-observer-log/0.1",
+  "runner": {
+    "executable_name": "llama_main",
+    "tokenizer_sha256": "82e9d31979e92ab929cd544440f129d9ecd797b69e327f80f17e1c50d5551b55",
+    "stdout_capture": "stdout filtered to the PyTorchObserver line; stderr discarded"
+  },
+  "log": "../logs/bench_prefill_2048.log",
+  "benchmark": "prefill-2048",
+  "host": {
+    "hostname": "ubuntu-lts",
+    "os": "Ubuntu 26.04.1 LTS",
+    "kernel": "7.0.0-30-generic",
+    "cpu_model": "Intel(R) Core(TM) i9-14900K",
+    "cpu_count": 32,
+    "memory_bytes": 67082768384,
+    "accelerator": "NVIDIA GeForce RTX 4070 Ti SUPER",
+    "accelerator_driver": "595.84",
+    "vulkan_api_version": "1.4.329"
+  },
+  "git": {
+    "commit_sha": "e4d02f41f7909e8ed5bf4a14ffc520d733453d9f",
+    "branch": "release/1.4",
+    "commit_timestamp": "2026-08-14T11:12:28-07:00",
+    "commit_subject": "[release/1.4] Fix CUDA shared library packaging (#21850)",
+    "dirty": true,
+    "modified_files": [
+      "backends/vulkan/runtime/graph/containers/SharedObject.cpp",
+      "backends/vulkan/runtime/graph/ops/impl/Squeeze.cpp",
+      "backends/apple/coreml/runtime/inmemoryfs/inmemory_filesystem.hpp",
+      "backends/apple/coreml/runtime/inmemoryfs/memory_buffer.hpp"
+    ],
+    "notes": "Vulkan files add a missing #include <algorithm> needed to compile (upstream pytorch/executorch#22422); CoreML files are an unrelated fix. examples/models/llama/CMakeLists.txt was modified only after the benchmark."
+  },
+  "executable": {
+    "path": "/home/doremy/sarc-acl/executorch/cmake-out/examples/models/llama/llama_main",
+    "sha256": null,
+    "note": "Binary rebuilt with ETDump instrumentation after the benchmark (llama_main mtime 14:56 local time vs log mtime earlier); the original binary was not preserved, so its hash is unknown rather than guessed."
+  },
+  "prompt": {
+    "file": "../prompt_2048.txt",
+    "path_on_host": "/tmp/claude-1000/-home-doremy-sarc-acl-executorch/5795bc45-62c9-4c36-b02d-0fc01f53ed2c/scratchpad/prompt_2048.txt",
+    "sha256": "61a7273e2b8eb92ce7a53db4d6df43802a8412d55b6b1b56dbe9a11604c26104"
+  },
+  "args_template": [
+    "--model_path={model}",
+    "--tokenizer_path={tokenizer}",
+    "--prompt_file={prompt_path}",
+    "--max_new_tokens=1"
+  ],
+  "models": {
+    "1B-8da4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-1b/exported/llama3_2-1b_vulkan_8da4w.pte",
+      "sha256": "4a175c9ad248a620236f15452782df2d6401c6a5cb0005e774e51161e43a8607",
+      "tokenizer_path": "/mnt/linux-share/models/llama-3.2-1b/original/tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "8da4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "1B-4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-1b/exported/llama3_2-1b_vulkan_4w.pte",
+      "sha256": "3221322ff2ab0ce044569ad0255d16e552301aac6e97024dc6e8389139af495d",
+      "tokenizer_path": "/mnt/linux-share/models/llama-3.2-1b/original/tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "3B-8da4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-3b/exported/llama3_2-3b_vulkan_8da4w.pte",
+      "sha256": "a5b4803e4540d65ae48cfce27c0c35773913d86c7d3c9f4a3e137d3ed6b02f19",
+      "tokenizer_path": "/mnt/linux-share/models/llama-3.2-3b/original/tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "8da4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "3B-4w": {
+      "path": "/mnt/linux-share/models/llama-3.2-3b/exported/llama3_2-3b_vulkan_4w.pte",
+      "sha256": "cd23df856cca2c78df532cf857ff207d7caf600f3b5d74daa3dc82b48de49da8",
+      "tokenizer_path": "/mnt/linux-share/models/llama-3.2-3b/original/tokenizer.model",
+      "export": {
+        "model_class": "llama3_2",
+        "qmode": "4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "8B-8da4w": {
+      "path": "/mnt/linux-share/models/llama-3.1-8b/exported/llama3_1-8b_vulkan_8da4w.pte",
+      "sha256": "cfa15f352ad801e098703ac99ad2e389fb29b2d894d9ec88bcdb3d5323a55b90",
+      "tokenizer_path": "/mnt/linux-share/models/llama-3.1-8b/original/tokenizer.model",
+      "export": {
+        "model_class": "llama3_1",
+        "qmode": "8da4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    },
+    "8B-4w": {
+      "path": "/mnt/linux-share/models/llama-3.1-8b/exported/llama3_1-8b_vulkan_4w.pte",
+      "sha256": "c458b376f6ffc8f0a154dfd04fac8e40116b6d30c97e0550db9a3eeb9b6a6400",
+      "tokenizer_path": "/mnt/linux-share/models/llama-3.1-8b/original/tokenizer.model",
+      "export": {
+        "model_class": "llama3_1",
+        "qmode": "4w",
+        "group_size": 128,
+        "embedding_quantize": "4,32",
+        "max_seq_length": 2560,
+        "max_context_length": 2560,
+        "dtype_override": "fp32",
+        "backend": "vulkan"
+      }
+    }
+  },
+  "skip_tags": {
+    "8B-8da4w": "VRAM was contended by another process; superseded by bench_prefill_2048_8b_freevram.log",
+    "8B-4w": "VRAM was contended by another process; superseded by bench_prefill_2048_8b_freevram.log"
+  },
+  "input_parameters": {
+    "backend": "vulkan",
+    "benchmark": "prefill-2048",
+    "executorch_checkout": "/home/doremy/sarc-acl/executorch",
+    "collected_by": "claude session benchmark-on-linux, 2026-09-01"
+  }
+}
