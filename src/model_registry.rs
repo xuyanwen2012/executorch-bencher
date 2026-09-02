@@ -231,8 +231,6 @@ pub trait ModelStorage {
         asset: &ModelAsset,
     ) -> Result<ModelAsset, ModelRegistryError>;
 
-    /// Where this asset's content currently lives on disk.
-    fn resolve_content_path(&self, asset: &ModelAsset) -> PathBuf;
 }
 
 /// External mode: the model file stays wherever it already is; the
@@ -411,20 +409,6 @@ impl ModelStorage for ExternalModelStorage {
         Self::rehash_and_reconcile(pool, asset, path, size_bytes, modified_at).await
     }
 
-    fn resolve_content_path(&self, asset: &ModelAsset) -> PathBuf {
-        PathBuf::from(asset.external_path.as_deref().unwrap_or_default())
-    }
-}
-
-/// Deferred: a future managed mode would copy a model once into
-/// `models/sha256/<prefix>/<sha256>` beneath the configured model root,
-/// deduplicating by checksum exactly like `artifact_store::store_artifact`.
-/// Not implemented in this change - see the module-level docs above and
-/// `design.md` - "`model_assets` and `ModelStorage` trait: external
-/// implemented, managed abstracted".
-#[allow(dead_code)]
-pub struct ManagedModelStorage {
-    pub model_root: PathBuf,
 }
 
 #[cfg(test)]

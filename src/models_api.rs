@@ -11,11 +11,13 @@ use crate::model_registry::{
     ExternalModelStorage, ModelAsset, ModelRegistryError, ModelStorage, ModelStorageMode,
 };
 use axum::Json;
-use axum::extract::{Path as PathParam, Query, State};
+use crate::config::Config;
+use crate::extract::{Json as JsonBody, Path as PathParam, Query};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -84,13 +86,56 @@ impl From<&ModelAsset> for ModelAssetResponse {
 
 #[derive(Deserialize, ToSchema)]
 struct RegisterModelRequest {
-    /// Absolute path to an existing `.pte` file on the server's filesystem.
-    /// External mode never copies this file - see
+    /// Absolute path to an existing `.pte` file on the server's filesystem,
+    /// beneath one of the server's registrable model roots
+    /// (`MODEL_REGISTER_ROOTS`, default the model root). Symlinks are
+    /// resolved before the root check, so neither `..` nor a symlink can
+    /// escape a root. External mode never copies this file - see
     /// `specs/artifact-storage` - "External model assets are registered
     /// once without copying". Registering the same file's SHA-256 again
     /// reuses the cached checksum rather than rehashing or copying it.
     #[schema(example = "/data/models/llama-3-8b-instruct.pte")]
     path: String,
+}
+
+/// Confines registration to `.pte` files beneath a configured registrable
+/// root. Without this, an unauthenticated caller could use registration as
+/// a file-existence-and-hash oracle over the whole server filesystem and
+/// make the server hash arbitrarily large files. Returns the resolved path.
+async fn validate_register_path(config: &Config, raw: &str) -> Result<PathBuf, ApiError> {
+    let path = Path::new(raw);
+    if !path.is_absolute() {
+        return Err(ApiError::invalid_field(
+            "path",
+            "path: must be an absolute path on the server",
+        ));
+    }
+    if path.extension().and_then(|ext| ext.to_str()) != Some("pte") {
+        return Err(ApiError::invalid_field("path", "path: must name a .pte file"));
+    }
+    let resolved = tokio::fs::canonicalize(path).await.map_err(|_| {
+        ApiError::invalid_field(
+            "path",
+            format!("path: {raw} does not exist or is not readable by the server"),
+        )
+    })?;
+    if !resolved.is_file() {
+        return Err(ApiError::invalid_field(
+            "path",
+            format!("path: {raw} is not a regular file"),
+        ));
+    }
+    for root in &config.model_register_roots {
+        if let Ok(root) = tokio::fs::canonicalize(root).await
+            && resolved.starts_with(&root)
+        {
+            return Ok(resolved);
+        }
+    }
+    Err(ApiError::invalid_field(
+        "path",
+        "path: must be beneath one of the server's registrable model roots (MODEL_REGISTER_ROOTS)",
+    ))
 }
 
 /// Register an external `.pte` model file by path, without copying it.
@@ -105,18 +150,19 @@ struct RegisterModelRequest {
     request_body = RegisterModelRequest,
     responses(
         (status = 201, description = "The model was registered, or an existing record with the same SHA-256 was reused.", body = ModelAssetResponse),
-        (status = 400, description = "The path does not exist or is not a regular file.", body = ApiErrorResponse),
+        (status = 400, description = "The body is not valid JSON, or the path is not absolute, does not name a `.pte` file, does not exist, is not a regular file, or lies outside every registrable model root. `details.field` is `path`.", body = ApiErrorResponse),
         (status = 500, description = "Internal storage error.", body = ApiErrorResponse),
     )
 )]
 async fn register_model(
     State(state): State<AppState>,
-    Json(req): Json<RegisterModelRequest>,
+    JsonBody(req): JsonBody<RegisterModelRequest>,
 ) -> Response {
-    match ExternalModelStorage
-        .register(&state.pool, Path::new(&req.path))
-        .await
-    {
+    let path = match validate_register_path(&state.config, &req.path).await {
+        Ok(path) => path,
+        Err(err) => return err.into_response(),
+    };
+    match ExternalModelStorage.register(&state.pool, &path).await {
         Ok(asset) => {
             state.events.publish(Event::ModelRegistered(ModelRegisteredEvent {
                 id: asset.id,

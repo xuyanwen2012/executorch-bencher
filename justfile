@@ -32,3 +32,15 @@ import-all:
 # Read-only storage/database integrity report for a profile.
 integrity profile="dev":
     set -a; . ./{{ if profile == "dev" { ".env" } else { ".env." + profile } }}; set +a; cargo run --example integrity_check
+
+# Smoke-test the dashboard pages against the running dev server (scenario: seeded | empty | dead).
+smoke-dashboard scenario="seeded":
+    cd dashboard && SCENARIO={{scenario}} DASHBOARD_URL=http://127.0.0.1:{{dashboard_port}} bun run smoke
+
+# Verify live refresh end to end (needs `bunx playwright install chromium` and a model the backend can read).
+live-check-dashboard model:
+    cd dashboard && DASHBOARD_URL=http://127.0.0.1:{{dashboard_port}} BACKEND_URL=http://{{backend_addr}} bun run live-check {{model}}
+
+# Capture wide and narrow screenshots of every dashboard page into `out` (relative to dashboard/).
+screenshot-dashboard out="shots":
+    cd dashboard && DASHBOARD_URL=http://127.0.0.1:{{dashboard_port}} SHOT_DIR={{out}} bun run screenshot

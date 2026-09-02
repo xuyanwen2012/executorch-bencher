@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CORRECTNESS_RESULTS,
+  DEVICE_CLASSES,
+  EXIT_STATUSES,
+  PLATFORMS,
   hasAnyFilter,
   parseResultsFilters,
   parseRunsFilters,
@@ -112,5 +116,14 @@ describe("filters", () => {
       prompt_sha256: "c".repeat(64),
     });
     expect(runsQuery(parseRunsFilters(new URLSearchParams("platform=ios")))).toMatchObject({ platform: undefined });
+  });
+});
+
+describe("enumerations", () => {
+  test("the filter vocabularies list every schema variant", () => {
+    expect(PLATFORMS).toEqual(["android", "linux"]);
+    expect(DEVICE_CLASSES).toEqual(["internal", "external"]);
+    expect(EXIT_STATUSES).toEqual(["succeeded", "crashed", "timed_out", "cancelled", "infrastructure_error"]);
+    expect(CORRECTNESS_RESULTS).toEqual(["passed", "failed", "not_checked", "validator_error"]);
   });
 });

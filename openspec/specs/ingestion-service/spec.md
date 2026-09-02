@@ -177,34 +177,39 @@ response.
 - **THEN** the response is `409` with code `conflict`
 
 ### Requirement: Service exposes grouped benchmark results
-The system SHALL expose an HTTP operation that groups runs into benchmark
-configurations and returns one result row per configuration. The
-configuration key SHALL be the tuple of device serial, model asset, git
-commit SHA, git dirty flag, SUMD driver version, BSP version, GPU clock,
-MIF clock, INT clock, and prompt SHA-256. Statistics SHALL be computed only
-over runs whose exit status is `succeeded`: for prefill throughput and,
+The system SHALL expose `GET /api/v1/results` returning one row per
+benchmark configuration. The configuration key SHALL be the platform, the
+device class, the host identity (`device_serial`), the model asset, the
+git commit SHA, the dirty flag, the prompt SHA-256, and the platform's own
+dimensions: SUMD driver version, BSP version, and the three pinned clocks
+on Android; the accelerator on Linux. Fields belonging to the other
+platform SHALL be null on a row. Statistics SHALL be computed only over
+runs whose exit status is `succeeded`: for prefill throughput and,
 separately, for decode throughput (over runs that recorded one), the
-median, minimum, maximum, and count. Each row SHALL also carry the total
-run count, the count of runs that did not succeed, the count of succeeded
-runs whose correctness result is `failed`, the count of runs that reported
-thermal throttling, the earliest and latest run start times, the input
-token count, the model's ID and original name, and the commit's branch,
-timestamp, and subject when recorded. Rows SHALL be ordered by commit
-timestamp descending, falling back to the configuration's earliest run
-start time when no commit timestamp is recorded, then by model name and
-device serial. The operation SHALL accept exact-match filters on device
-serial, model asset ID, git commit SHA, git branch, git dirty flag, SUMD
-driver version, BSP version, and prompt SHA-256, combined conjunctively,
-SHALL return at most 500 rows with a flag indicating truncation, and SHALL
-return `facets`: the distinct device serials, models (ID and name), git
-branches, SUMD driver versions, and BSP versions present across all runs
-regardless of the active filters.
+median, minimum, maximum, and sample count. Each row SHALL also carry the
+total run count, the count of runs that did not succeed, the count of
+succeeded runs whose correctness result is `failed`, the count of runs
+that reported thermal throttling (runs that did not capture it count as
+not throttled), the earliest and latest run start times, the input token
+count, the model's ID and original name, the device model name when
+recorded, and the commit's branch, timestamp, and subject when recorded.
+Rows SHALL be ordered by commit timestamp descending, falling back to the
+configuration's earliest run start time when no commit timestamp is
+recorded, then by model name and host identity. The operation SHALL
+accept exact-match filters on `platform`, `device_class`, `device_serial`,
+`model_asset_id`, `git_commit_sha`, `git_branch`, `git_dirty`,
+`sumd_driver_version`, `bsp_version`, `host_accelerator`, and
+`prompt_sha256`, combined conjunctively, SHALL return at most 500 rows
+with a `truncated` flag, and SHALL return `facets`: the distinct
+platforms, device classes, host identities, models (ID and name), git
+branches, SUMD driver versions, BSP versions, and accelerators present
+across all runs regardless of the active filters.
 
 #### Scenario: Repetitions collapse into one row with a median
 - **WHEN** five succeeded runs share one configuration key with prefill
-  throughputs 100, 110, 120, 130, and 900
+  throughputs 100, 110, 120, 130, and 900 tokens per second
 - **THEN** the results contain one row for that key with prefill median
-  120, minimum 100, maximum 900, and count 5
+  120, minimum 100, maximum 900, and n of 5
 
 #### Scenario: Only succeeded runs contribute to statistics
 - **WHEN** a configuration has three succeeded runs and two crashed runs
@@ -221,6 +226,13 @@ regardless of the active filters.
   working tree
 - **THEN** the results contain two rows differing only in the dirty flag
 
+#### Scenario: Linux hosts group by hostname and accelerator
+- **WHEN** runs exist for one model and commit on Linux host `box-a` with
+  two different accelerators and on host `box-b` with one
+- **THEN** the results contain three Linux rows, each with its accelerator
+  and null SUMD driver, BSP, and clock fields, and filtering on
+  `platform=linux` and `host_accelerator` narrows to the matching rows
+
 #### Scenario: Rows are ordered by commit history when available
 - **WHEN** runs exist for two commits with recorded commit timestamps and a
   third commit without one
@@ -228,8 +240,17 @@ regardless of the active filters.
   is positioned by its earliest run start time
 
 #### Scenario: Facets ignore active filters
-- **WHEN** a client requests results filtered to one device serial
-- **THEN** `facets` still lists every device serial present in the database
+- **WHEN** a client requests results filtered to one host identity
+- **THEN** `facets` still lists every host identity present in the database
+
+#### Scenario: Facets include platforms and accelerators
+- **WHEN** both Android and Linux runs exist
+- **THEN** `facets.platforms` lists `android` and `linux` and
+  `facets.host_accelerators` lists each distinct accelerator
+
+#### Scenario: An unknown platform filter is rejected
+- **WHEN** a client passes `platform=ios`
+- **THEN** the service responds 400 with the `invalid_request` envelope
 
 #### Scenario: The row cap is signalled
 - **WHEN** more than 500 configurations match the filters
@@ -237,20 +258,23 @@ regardless of the active filters.
   true
 
 ### Requirement: Service exposes a paginated, filterable run listing
-The system SHALL expose an HTTP operation that lists recorded runs newest
-first (by start time, with the run ID as a deterministic tie-breaker),
-returning per-run summaries and an opaque cursor for the next page. The
-operation SHALL accept a page size (`limit`, default 50, maximum 200), an
-opaque `cursor` from a previous response, and exact-match filters on device
-serial, model asset ID, git commit SHA, git branch, git dirty flag, SUMD
-driver version, BSP version, GPU clock, MIF clock, INT clock, prompt
-SHA-256, exit status, and correctness result, combining multiple filters
-conjunctively. Each summary SHALL include the run's ID, start and finish
-times, repetition, device serial, git commit SHA, dirty flag, and branch,
-SUMD driver version, BSP version, the referenced model's ID and original
-name, exit status, correctness result, prefill throughput, decode
-throughput (null when not recorded), and thermal-throttling flag. An
-unrecognized exit status or correctness result filter value, a
+The system SHALL expose `GET /api/v1/runs` returning run summaries newest
+first (by start time, with the run ID as a deterministic tie-breaker) with
+an opaque cursor for the next page. The operation SHALL accept a page size
+(`limit`, default 50, maximum 200), an opaque `cursor` from a previous
+response, and exact-match filters on `platform`, `device_class`,
+`device_serial`, `model_asset_id`, `git_commit_sha`, `git_branch`,
+`git_dirty`, `sumd_driver_version`, `bsp_version`, `gpu_clock_mhz`,
+`mif_clock_mhz`, `int_clock_mhz`, `host_accelerator`, `prompt_sha256`,
+`exit_status`, and `correctness_result`, combined conjunctively. Each
+summary SHALL include the run's ID, start and finish times, repetition,
+platform, device class, host identity, device model, git commit SHA,
+dirty flag, and branch, the platform's key dimensions (SUMD driver and BSP
+on Android; accelerator on Linux, the other platform's fields null), the
+referenced model's ID and original name, exit status, correctness result,
+prefill throughput, decode throughput (null when not recorded), and
+thermal throttling (null when not captured). An unrecognized platform,
+device class, exit status, or correctness result filter value, a
 non-positive or over-maximum `limit`, or an undecodable cursor SHALL be
 rejected with the consistent error envelope's invalid-request code.
 
@@ -267,15 +291,22 @@ rejected with the consistent error envelope's invalid-request code.
   if new runs are inserted between page requests
 
 #### Scenario: Filters combine conjunctively
-- **WHEN** a client lists runs filtered by a device serial and an exit
+- **WHEN** a client lists runs filtered by a host identity and an exit
   status
 - **THEN** only runs matching both are returned
 
+#### Scenario: Listing filters by platform and accelerator
+- **WHEN** one Linux run and no Android runs exist and a client requests
+  `platform=linux`, then `platform=android`, then
+  `host_accelerator=<that run's accelerator>`
+- **THEN** the first and third responses contain exactly that run and the
+  second is empty
+
 #### Scenario: A full configuration key selects exactly one configuration's runs
-- **WHEN** a client lists runs filtered by every field of a results row's
-  configuration key
-- **THEN** exactly the runs that contributed to that results row are
-  returned
+- **WHEN** a client passes every configuration-key filter for one
+  configuration
+- **THEN** the response contains exactly the runs that contributed to that
+  results row
 
 #### Scenario: Invalid filter or paging values are rejected
 - **WHEN** a client supplies an exit status outside the stable enum, a
@@ -285,17 +316,23 @@ rejected with the consistent error envelope's invalid-request code.
   code rather than ignoring the value or failing internally
 
 ### Requirement: Single-run responses expose the complete recorded run
-The single-run read operation SHALL return, in addition to the outcome and
-artifact/model summaries it already returns: repetition, the command-line
-argument array, the command line, input parameters, captured environment
-variables, environment-allowlist version, collector version, device serial,
-BSP version, driver version, device uptime in seconds, battery-charging
-flag, initial and maximum temperatures in degrees Celsius, thermal-throttling
-flag, GPU/MIF/INT clocks in MHz, git commit SHA, dirty flag, branch, commit
-timestamp, and commit subject, executable SHA-256, prompt SHA-256, input
-and output token counts, prefill throughput, decode throughput (null when
-not recorded), and error summary. Every field already returned SHALL keep
-its existing name and shape.
+`GET /api/v1/runs/{id}` SHALL return every recorded field of the run as
+top-level fields named as stored, with units in their documentation, in
+addition to the outcome and artifact/model summaries: repetition, the
+command-line argument array, the command line, input parameters, captured
+environment variables, environment-allowlist version, collector version,
+git commit SHA, dirty flag, branch, commit timestamp, and commit subject,
+prompt SHA-256, input and output token counts, prefill throughput, decode
+throughput (null when not recorded), and error summary. The response
+SHALL include `platform`, `device_class`, `device_serial`, and
+`device_model`; the Android lab snapshot fields (BSP version, SUMD driver
+version, device uptime in seconds, battery-charging flag, initial and
+maximum temperatures in degrees Celsius, thermal-throttling flag, and
+GPU/MIF/INT clocks in MHz), null where not recorded; the host description
+fields (`host_os`, `host_kernel`, `host_cpu_model`, `host_cpu_count`,
+`host_memory_bytes`, `host_accelerator`, `host_accelerator_driver`), null
+where not recorded; and `executable_sha256`, null when unknown. Every
+field already returned SHALL keep its existing name and shape.
 
 #### Scenario: A run's recorded measurements are readable over HTTP
 - **WHEN** a client fetches a run that recorded clocks, temperatures, token
@@ -305,10 +342,23 @@ its existing name and shape.
   environment variables) returned as JSON values rather than encoded
   strings
 
+#### Scenario: A Linux run reads back its host fields and null Android fields
+- **WHEN** a client fetches a Linux run
+- **THEN** the response has `platform` `linux`, the host fields as recorded,
+  and null `bsp_version`, `sumd_driver_version`, `battery_charging`,
+  temperatures, and clocks
+
+#### Scenario: A retail phone's run reads back its description and null lab fields
+- **WHEN** a client fetches an external Android run
+- **THEN** the response has `device_class` `external`, the device model,
+  build, kernel, SoC, GPU, and driver as recorded, and null BSP, SUMD,
+  clocks, battery, temperatures, uptime, and throttling
+
 #### Scenario: Existing fields are unchanged
-- **WHEN** a client written against the previous single-run response reads
-  the new response
-- **THEN** every field it relied on is present with the same name and type
+- **WHEN** a client fetches an Android run recorded before platforms and
+  device classes existed
+- **THEN** every previously documented field is present with its previous
+  name, value, and shape, and the Linux host fields are null
 
 ### Requirement: Service optionally serves the built dashboard
 When a dashboard output directory is configured, the system SHALL serve its

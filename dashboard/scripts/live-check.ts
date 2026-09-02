@@ -1,14 +1,16 @@
 // Verifies live refresh end to end: open the runs page, post a run through
 // the backend, and expect the new run to appear without a reload. Run with
-// the dev server on DASH (default http://127.0.0.1:3111) proxying to a
-// backend, and a model registered in that backend.
-//   bun scripts/live-check.ts <model.pte path readable by the backend>
+// the dev server on DASHBOARD_URL (default http://127.0.0.1:$PORT, then the
+// justfile's 3101) proxying to the backend on BACKEND_URL (default
+// http://127.0.0.1:3100), and a model registered in that backend.
+//   bun run live-check <model.pte path readable by the backend>
 import { chromium } from "playwright";
 
-const DASH = process.env.DASH ?? "http://127.0.0.1:3111";
+const DASH = (process.env.DASHBOARD_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3101}`).replace(/\/$/, "");
+const BACKEND = (process.env.BACKEND_URL ?? "http://127.0.0.1:3100").replace(/\/$/, "");
 const model = process.argv[2];
 if (!model) {
-  console.error("usage: bun scripts/live-check.ts <model.pte>");
+  console.error("usage: bun run live-check <model.pte>");
   process.exit(2);
 }
 const browser = await chromium.launch();
@@ -30,7 +32,7 @@ const observer = `PyTorchObserver ${JSON.stringify({
 })}`;
 const proc = Bun.spawn(
   [
-    "python3", "../examples/post_run.py", "--backend", process.env.BACKEND ?? "http://127.0.0.1:3110",
+    "python3", "../examples/post_run.py", "--backend", BACKEND,
     "--model", model, "--prompt-text", "live check", "--repetition", "0",
     "--argv", `--model_path=${model} --max_new_tokens=1`, "--git-sha", "3333333333333333333333333333333333333333",
     "--git-branch", "main", "--benchmark", "live-check", "--serial", "live-check-host",

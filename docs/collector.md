@@ -33,7 +33,10 @@ reference implementation.
    ```
 
    If it is not registered, register it from a path the *backend host* can
-   read (the NFS mount, not the phone):
+   read (the NFS mount, not the phone). The path must be an absolute `.pte`
+   file beneath one of the backend's registrable roots
+   (`MODEL_REGISTER_ROOTS`; the real profile lists the model share) -
+   anything else is a `400` naming `path`:
 
    ```
    POST /api/v1/models/register   { "path": "/mnt/linux-share/models/.../model.pte" }

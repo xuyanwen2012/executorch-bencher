@@ -1,14 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { api, type components } from "../api/client";
 import { unwrap } from "../api/errors";
 import { FilterBar, type FilterField } from "../components/FilterBar";
+import { FOCUS_RING } from "../components/focus";
 import { SpreadBar, SpreadLegend } from "../components/SpreadBar";
-import { AbsentDash, Badge, EmptyState, ErrorState, Loading } from "../components/State";
-import { DeviceClassBadge, DirtyBadge, StatusLegend, ThrottledBadge } from "../components/Status";
+import { Absent, AbsentDash, Badge, EmptyState, ErrorState, Loading } from "../components/State";
+import { DirtyBadge, StatusLegend, ThrottledBadge } from "../components/Status";
+import { Th } from "../components/Table";
 import { Timestamp } from "../components/Timestamp";
-import { collapseColumns, type ColumnSpec } from "../lib/collapse";
+import { collapseColumns } from "../lib/collapse";
 import {
   hasAnyFilter,
   parseResultsFilters,
@@ -19,94 +20,10 @@ import {
   type ResultsFilters,
 } from "../lib/filters";
 import { abbreviateSha, formatCount, formatRange, modelLabel, pluralRuns } from "../lib/format";
-import { parseModelName } from "../lib/model";
+import { ABSENT_GLYPH, KEY_COLUMNS, type ResultColumn, type ResultRow, renderCell } from "../lib/resultsColumns";
 
-type Row = components["schemas"]["ResultRowResponse"];
+type Row = ResultRow;
 type Metric = "prefill" | "decode";
-
-/** Platform-specific dimensions read as "—" on the other platform, so a
- * column that is constant across every visible row still collapses. */
-const ABSENT = "—";
-const orAbsent = (v: string | number | null | undefined) => (v === null || v === undefined ? ABSENT : String(v));
-
-interface Column extends ColumnSpec<Row> {
-  /** Rendered cell; defaults to the collapsing value in mono. */
-  render?: (row: Row) => ReactNode;
-  align?: "right";
-  /** Constrains a column that can carry a very long value. */
-  width?: string;
-}
-
-const KEY_COLUMNS: readonly Column[] = [
-  {
-    key: "platform",
-    label: "Platform",
-    value: (r) => r.platform,
-    render: (r) => <span className="text-ink-2">{r.platform}</span>,
-  },
-  {
-    key: "model",
-    label: "Model",
-    value: (r) => modelLabel(r.model_asset.original_name),
-    width: "w-[7.5rem] max-w-[7.5rem]",
-    render: (r) => {
-      const model = parseModelName(r.model_asset.original_name);
-      return (
-        <span className="block" title={model.label}>
-          <span className="clip font-medium text-ink">{model.identity}</span>
-          {model.qualifiers ? <span className="clip font-mono text-[11px] text-ink-3">{model.qualifiers}</span> : null}
-        </span>
-      );
-    },
-  },
-  {
-    key: "class",
-    label: "Class",
-    value: (r) => r.device_class,
-    render: (r) => <DeviceClassBadge deviceClass={r.device_class} />,
-  },
-  {
-    key: "device",
-    label: "Host",
-    value: (r) => r.device_serial,
-    render: (r) => (
-      <span className="block">
-        <span className="block text-ink">{r.device_serial}</span>
-        {r.device_model ? <span className="block text-[11px] text-ink-3">{r.device_model}</span> : null}
-      </span>
-    ),
-  },
-  {
-    key: "accelerator",
-    label: "Accelerator",
-    value: (r) => orAbsent(r.host_accelerator),
-    width: "w-[8rem] max-w-[8rem]",
-    render: (r) =>
-      r.host_accelerator ? (
-        <span className="clip" title={r.host_accelerator}>
-          {r.host_accelerator}
-        </span>
-      ) : (
-        <AbsentDash title="Not applicable on this platform" />
-      ),
-  },
-  {
-    key: "driver",
-    label: "SUMD driver",
-    value: (r) => orAbsent(r.sumd_driver_version),
-    render: (r) => r.sumd_driver_version ?? <AbsentDash title="Not applicable on this platform" />,
-  },
-  {
-    key: "bsp",
-    label: "BSP",
-    value: (r) => orAbsent(r.bsp_version),
-    render: (r) => r.bsp_version ?? <AbsentDash title="Not applicable on this platform" />,
-  },
-  { key: "gpu", label: "GPU MHz", value: (r) => orAbsent(r.gpu_clock_mhz), align: "right" },
-  { key: "mif", label: "MIF MHz", value: (r) => orAbsent(r.mif_clock_mhz), align: "right" },
-  { key: "int", label: "INT MHz", value: (r) => orAbsent(r.int_clock_mhz), align: "right" },
-  { key: "tokens", label: "Input tok", value: (r) => String(r.input_token_count), align: "right" },
-];
 
 export function ResultsPage() {
   const [params, setParams] = useSearchParams();
@@ -117,14 +34,20 @@ export function ResultsPage() {
   const query = useQuery({
     queryKey: ["results", filters],
     queryFn: () => unwrap(api.GET("/api/v1/results", { params: { query: resultsQuery(filters) } })),
+    // A filter edit keeps the last table on screen, dimmed, until the new
+    // one arrives, instead of flashing through the loading state.
+    placeholderData: keepPreviousData,
   });
+  const updating = query.isPlaceholderData || (query.isFetching && query.data !== undefined);
 
+  // Filter and view edits replace the history entry: the back button should
+  // leave the page, not undo one keystroke or toggle at a time.
   const update = (next: ResultsFilters, extra?: { metric?: Metric; all?: boolean }) => {
     const p = resultsFiltersToParams(next);
     const m = extra?.metric ?? metric;
     if (m !== "prefill") p.set("metric", m);
     if (extra?.all ?? showAll) p.set("all", "1");
-    setParams(p);
+    setParams(p, { replace: true });
   };
   const onFilter = (key: ResultsFilterKey, value: string) => update({ ...filters, [key]: value || undefined });
 
@@ -183,7 +106,7 @@ export function ResultsPage() {
               type="checkbox"
               checked={showAll}
               onChange={(e) => update(filters, { all: e.target.checked })}
-              className="accent-prefill"
+              className={`accent-prefill ${FOCUS_RING}`}
             />
             <span className="eyebrow">Show all columns</span>
           </label>
@@ -201,7 +124,9 @@ export function ResultsPage() {
       {query.isPending ? <Loading label="Loading results…" /> : null}
       {query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
       {query.data ? (
-        <ResultsBody data={query.data} metric={metric} showAll={showAll} filtered={hasAnyFilter(filters)} />
+        <div className={`transition-opacity ${updating ? "opacity-60" : ""}`} aria-busy={updating}>
+          <ResultsBody data={query.data} metric={metric} showAll={showAll} filtered={hasAnyFilter(filters)} />
+        </div>
       ) : null}
     </section>
   );
@@ -217,7 +142,7 @@ function MetricToggle({ metric, onChange }: { metric: Metric; onChange: (m: Metr
         type="button"
         aria-pressed={on}
         onClick={() => onChange(value)}
-        className={`eyebrow px-2.5 py-1.5 transition-colors ${on ? tone : "text-ink-3 hover:bg-wash hover:text-ink-2"}`}
+        className={`eyebrow px-2.5 py-1.5 transition-colors ${on ? tone : "text-ink-3 hover:bg-wash hover:text-ink-2"} ${FOCUS_RING}`}
       >
         {label}
       </button>
@@ -286,7 +211,9 @@ function ResultsBody({
           {collapsed.shared.map((s) => (
             <span key={s.key} className="flex items-baseline gap-1.5">
               <span className="eyebrow text-ink-3">{s.label}</span>
-              <span className="font-mono text-xs text-ink">{s.value}</span>
+              <span className="font-mono text-xs text-ink">
+                {s.value === ABSENT_GLYPH ? <AbsentDash title="Not applicable on this platform" /> : s.value}
+              </span>
             </span>
           ))}
         </div>
@@ -348,14 +275,6 @@ function ResultsBody({
   );
 }
 
-function Th({ children, className = "", hint }: { children: ReactNode; className?: string; hint?: string }) {
-  return (
-    <th scope="col" title={hint} className={`eyebrow px-2 py-1.5 align-bottom text-ink-3 ${className}`}>
-      {children}
-    </th>
-  );
-}
-
 function rowKey(r: Row): string {
   return [
     r.platform,
@@ -380,7 +299,7 @@ function ResultRowView({
   newCommit,
 }: {
   row: Row;
-  visible: readonly Column[];
+  visible: readonly ResultColumn[];
   metric: Metric;
   newCommit: boolean;
 }) {
@@ -422,7 +341,7 @@ function ResultRowView({
           key={c.key}
           className={`px-2 py-2 ${c.width ?? ""} ${c.align === "right" ? "text-right" : ""} font-mono text-xs text-ink-2`}
         >
-          {c.render ? c.render(row) : c.value(row)}
+          {renderCell(c, row)}
         </td>
       ))}
 
@@ -495,12 +414,7 @@ function MetricCell({
           <span className="block font-mono text-[11px] whitespace-nowrap text-ink-3">{range}</span>
         </>
       ) : (
-        <span
-          className="block text-[11px] whitespace-nowrap text-ink-3 italic"
-          title="No succeeded run recorded this phase."
-        >
-          not recorded
-        </span>
+        <Absent className="block text-[11px] whitespace-nowrap" title="No succeeded run recorded this phase." />
       )}
     </td>
   );

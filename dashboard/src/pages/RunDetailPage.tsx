@@ -1,11 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { Link, useParams } from "react-router";
-import { api, type components } from "../api/client";
+import { api } from "../api/client";
 import { isNotFound, unwrap } from "../api/errors";
 import { ArtifactCard, MissingArtifacts, type ArtifactSlot } from "../components/ArtifactCard";
-import { FieldGroup, Hash, JsonValue, type Field } from "../components/FieldGroup";
-import { Absent, Badge, EmptyState, ErrorState, Loading } from "../components/State";
+import { Absent, EmptyState, ErrorState, Loading } from "../components/State";
 import {
   CorrectnessBadge,
   DeviceClassBadge,
@@ -15,44 +13,29 @@ import {
 } from "../components/Status";
 import { Timestamp } from "../components/Timestamp";
 import { runsFiltersToParams } from "../lib/filters";
-import {
-  abbreviateSha,
-  formatBytes,
-  formatDurationSeconds,
-  formatElapsed,
-  formatTokPerSec,
-} from "../lib/format";
+import { abbreviateSha, formatTokPerSec } from "../lib/format";
 import { parseModelName } from "../lib/model";
-import { gitNotes, modifiedFiles } from "../lib/provenance";
-
-type Run = components["schemas"]["RunResponse"];
+import { BuildIdentityGroup } from "./run-detail/BuildIdentityGroup";
+import { HostGroup } from "./run-detail/HostGroup";
+import { ModelGroup } from "./run-detail/ModelGroup";
+import { ResultsGroup } from "./run-detail/ResultsGroup";
+import { RunMetadataGroup } from "./run-detail/RunMetadataGroup";
+import type { Run } from "./run-detail/shared";
 
 export function RunDetailPage() {
   const { id = "" } = useParams();
   const query = useQuery({
     queryKey: ["run", id],
     queryFn: () => unwrap(api.GET("/api/v1/runs/{id}", { params: { path: { id } } })),
+    // An empty id can never resolve; the page says so below instead of
+    // leaving a disabled query pending forever behind "Loading run…".
     enabled: id !== "",
   });
 
+  if (id === "") return <RunNotFound id={id} />;
   if (query.isPending) return <Loading label="Loading run…" />;
   if (query.isError) {
-    if (isNotFound(query.error)) {
-      return (
-        <EmptyState
-          title="Run not found."
-          hint={`No run is recorded under the ID ${id}.`}
-          action={
-            <Link
-              to="/runs"
-              className="eyebrow rounded-sm border border-rule bg-paper px-3 py-1.5 text-ink-2 hover:border-rule-strong hover:bg-wash"
-            >
-              Back to all runs
-            </Link>
-          }
-        />
-      );
-    }
+    if (isNotFound(query.error)) return <RunNotFound id={id} />;
     return (
       <div>
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
@@ -67,22 +50,25 @@ export function RunDetailPage() {
   return <RunDetail run={query.data} />;
 }
 
+function RunNotFound({ id }: { id: string }) {
+  return (
+    <EmptyState
+      title="Run not found."
+      hint={id === "" ? "No run ID was given." : `No run is recorded under the ID ${id}.`}
+      action={
+        <Link
+          to="/runs"
+          className="eyebrow rounded-sm border border-rule bg-paper px-3 py-1.5 text-ink-2 hover:border-rule-strong hover:bg-wash"
+        >
+          Back to all runs
+        </Link>
+      }
+    />
+  );
+}
+
 function RunDetail({ run }: { run: Run }) {
-  const yesNo = (v: boolean | null | undefined) => (v === null || v === undefined ? null : v ? "yes" : "no");
-  const celsius = (v: number | null | undefined) => (v === null || v === undefined ? null : `${v.toFixed(1)} °C`);
-  const mhz = (v: number | null | undefined) => (v === null || v === undefined ? null : `${v} MHz`);
   const model = parseModelName(run.model_asset?.original_name ?? "");
-  const external = run.device_class === "external";
-  // On an external device the lab-only dimensions were never collectable,
-  // which is a different statement from "the collector missed them".
-  const lab = (value: ReactNode | null | undefined): ReactNode | null =>
-    value === null || value === undefined
-      ? external
-        ? <Absent label="not applicable" />
-        : null
-      : value;
-  const files = modifiedFiles(run.input_parameters);
-  const notes = gitNotes(run.input_parameters);
 
   const slots: ArtifactSlot[] = [
     { slot: "input prompt", artifact: run.input_artifact },
@@ -165,193 +151,11 @@ function RunDetail({ run }: { run: Run }) {
       </header>
 
       <div className="lg:columns-2 lg:gap-4 [&>section]:mb-4 [&>section]:break-inside-avoid">
-        <FieldGroup
-          title="Results"
-          fields={[
-            { label: "Exit status", value: <ExitBadge status={run.exit_status} /> },
-            { label: "Correctness", value: <CorrectnessBadge result={run.correctness_result} /> },
-            {
-              label: "Prefill",
-              value: withUnit(formatTokPerSec(run.prefill_tokens_per_sec), "tok/s", "prefill"),
-            },
-            {
-              label: "Decode",
-              value: withUnit(formatTokPerSec(run.decode_tokens_per_sec), "tok/s", "decode"),
-              hint: "Null when the run measured prefill only; never shown as zero.",
-            },
-            { label: "Error summary", value: run.error_summary, mono: true },
-            {
-              label: "Output preview",
-              block: true,
-              value: run.output_preview ? (
-                <pre className="max-h-56 overflow-auto rounded-sm border border-rule bg-wash px-2 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap text-ink-2">
-                  {run.output_preview}
-                </pre>
-              ) : null,
-            },
-          ]}
-        />
-
-        <FieldGroup
-          title="Build and workload identity"
-          fields={[
-            { label: "Git commit", value: <Hash value={run.git_commit_sha} full />, },
-            {
-              label: "Working tree",
-              value: run.git_dirty ? <DirtyBadge /> : <Badge tone="ok" plain>clean</Badge>,
-            },
-            ...(files ? [modifiedFilesField(files)] : []),
-            { label: "Branch", value: run.git_branch, mono: true },
-            { label: "Commit time", value: run.git_commit_timestamp ? <Timestamp iso={run.git_commit_timestamp} both /> : null },
-            { label: "Commit subject", value: run.git_commit_subject },
-            ...(notes ? [{ label: "Commit notes", value: notes } satisfies Field] : []),
-            {
-              label: "Executable",
-              hint: "SHA-256 of the measured binary. Null means the binary was not preserved — it is never a placeholder.",
-              value: run.executable_sha256 ? (
-                <Hash value={run.executable_sha256} full />
-              ) : (
-                <span className="text-ink-3 italic" title="No executable hash was recorded for this run.">
-                  not preserved
-                </span>
-              ),
-            },
-            { label: "Prompt", value: <Hash value={run.prompt_sha256} full /> },
-            { label: "Input tokens", value: run.input_token_count.toLocaleString(), mono: true },
-            { label: "Output tokens", value: run.output_token_count.toLocaleString(), mono: true },
-          ]}
-        />
-
-        {run.platform === "android" ? (
-          <>
-            <FieldGroup
-              title="Device state"
-              note={external ? "external device — no BSP, driver or thermal capture" : undefined}
-              fields={[
-                { label: "Platform", value: run.platform, mono: true },
-                { label: "Device class", value: <DeviceClassBadge deviceClass={run.device_class} /> },
-                { label: "Device serial", value: run.device_serial, mono: true },
-                { label: "Device model", value: run.device_model, mono: true },
-                { label: "OS", value: run.host_os },
-                { label: "Kernel", value: run.host_kernel, mono: true },
-                { label: "SoC", value: run.host_cpu_model, mono: true, hint: "Reported as the host CPU model." },
-                { label: "CPU count", value: run.host_cpu_count == null ? null : String(run.host_cpu_count), mono: true },
-                {
-                  label: "Memory",
-                  value: run.host_memory_bytes == null ? null : formatBytes(run.host_memory_bytes),
-                  mono: true,
-                },
-                { label: "GPU", value: run.host_accelerator },
-                { label: "GPU driver", value: run.host_accelerator_driver, mono: true },
-                { label: "BSP version", value: lab(run.bsp_version), mono: true },
-                { label: "SUMD driver", value: lab(run.sumd_driver_version), mono: true },
-                {
-                  label: "Uptime",
-                  value: lab(run.device_uptime_seconds == null ? null : formatDurationSeconds(run.device_uptime_seconds)),
-                },
-                { label: "Battery charging", value: lab(yesNo(run.battery_charging)) },
-                { label: "Initial temp.", value: lab(celsius(run.initial_temperature_celsius)) },
-                { label: "Max temp.", value: lab(celsius(run.max_temperature_celsius)) },
-                {
-                  label: "Throttling",
-                  value: run.thermal_throttling ? <ThrottledBadge /> : lab(yesNo(run.thermal_throttling)),
-                },
-              ]}
-            />
-            <FieldGroup
-              title="Performance configuration"
-              note={external ? "clocks are not pinnable on an external device" : "pinned clocks"}
-              fields={[
-                { label: "GPU clock", value: lab(mhz(run.gpu_clock_mhz)), mono: true },
-                { label: "MIF clock", value: lab(mhz(run.mif_clock_mhz)), mono: true },
-                { label: "INT clock", value: lab(mhz(run.int_clock_mhz)), mono: true },
-              ]}
-            />
-          </>
-        ) : (
-          <FieldGroup
-            title="Host"
-            fields={[
-              { label: "Platform", value: run.platform, mono: true },
-              { label: "Device class", value: <DeviceClassBadge deviceClass={run.device_class} /> },
-              { label: "Hostname", value: run.device_serial, mono: true },
-              { label: "Machine", value: run.device_model, mono: true },
-              { label: "OS", value: run.host_os },
-              { label: "Kernel", value: run.host_kernel, mono: true },
-              { label: "CPU", value: run.host_cpu_model },
-              { label: "CPU count", value: run.host_cpu_count == null ? null : String(run.host_cpu_count), mono: true },
-              { label: "Memory", value: run.host_memory_bytes == null ? null : formatBytes(run.host_memory_bytes), mono: true },
-              {
-                label: "Accelerator",
-                value: run.host_accelerator ? (
-                  <span title={run.host_accelerator}>{run.host_accelerator}</span>
-                ) : null,
-              },
-              { label: "Accel. driver", value: run.host_accelerator_driver, mono: true },
-              {
-                label: "Uptime",
-                value: run.device_uptime_seconds == null ? null : formatDurationSeconds(run.device_uptime_seconds),
-              },
-              {
-                label: "Throttling",
-                value: run.thermal_throttling ? <ThrottledBadge /> : yesNo(run.thermal_throttling),
-              },
-            ]}
-          />
-        )}
-
-        <FieldGroup
-          title="Model"
-          note={run.model_asset?.available ? undefined : "file missing on disk"}
-          fields={
-            run.model_asset
-              ? [
-                  { label: "Name", value: run.model_asset.original_name, mono: true },
-                  { label: "SHA-256", value: <Hash value={run.model_asset.sha256} full /> },
-                  {
-                    label: "Availability",
-                    value: run.model_asset.available ? (
-                      <Badge tone="ok" plain>
-                        available
-                      </Badge>
-                    ) : (
-                      <Badge tone="danger">unavailable</Badge>
-                    ),
-                  },
-                  { label: "Asset ID", value: run.model_asset.id, mono: true },
-                ]
-              : [{ label: "Model", value: null }]
-          }
-        />
-
-        <FieldGroup
-          title="Run metadata"
-          fields={[
-            { label: "Run ID", value: run.id, mono: true },
-            { label: "Started", value: <Timestamp iso={run.started_at} both /> },
-            { label: "Finished", value: run.finished_at ? <Timestamp iso={run.finished_at} both /> : null },
-            { label: "Elapsed", value: formatElapsed(run.started_at, run.finished_at), mono: true },
-            { label: "Repetition", value: String(run.repetition), mono: true },
-            {
-              label: "Command line",
-              block: true,
-              value: run.command_line ? (
-                <pre className="overflow-x-auto rounded-sm border border-rule bg-wash px-2 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap text-ink-2">
-                  {run.command_line}
-                </pre>
-              ) : null,
-            },
-            { label: "Command args", block: true, value: <JsonValue value={run.command_args} /> },
-            {
-              label: "Input parameters",
-              block: true,
-              value: <JsonValue value={run.input_parameters} />,
-            },
-            { label: "Environment", block: true, value: <JsonValue value={run.env_vars} /> },
-            { label: "Allowlist version", value: run.env_allowlist_version, mono: true },
-            { label: "Collector version", value: run.collector_version, mono: true },
-          ]}
-        />
+        <ResultsGroup run={run} />
+        <BuildIdentityGroup run={run} />
+        <HostGroup run={run} />
+        <ModelGroup run={run} />
+        <RunMetadataGroup run={run} />
       </div>
 
       <section>
@@ -403,42 +207,10 @@ function Reading({
           <span className="text-xs text-ink-3">{unit}</span>
         </p>
       ) : (
-        <p className="mt-1.5 text-ink-3 italic" title="The backend recorded no value for this field.">
-          not recorded
+        <p className="mt-1.5">
+          <Absent />
         </p>
       )}
     </div>
-  );
-}
-
-function withUnit(value: string | null, unit: string, tone: "prefill" | "decode"): ReactNode {
-  if (!value) return null;
-  const colour = tone === "prefill" ? "text-prefill" : "text-decode";
-  return (
-    <span className="flex items-baseline gap-1">
-      <span className={`font-mono font-medium ${colour}`}>{value}</span>
-      <span className="text-xs text-ink-3">{unit}</span>
-    </span>
-  );
-}
-
-function modifiedFilesField(files: string[]): Field {
-  return {
-    label: "Modified files",
-    block: true,
-    hint: "The files that were uncommitted when this run was measured, from the import manifest.",
-    value: <FileList files={files} />,
-  };
-}
-
-function FileList({ files }: { files: string[] }) {
-  return (
-    <ul className="max-h-40 space-y-0.5 overflow-auto rounded-sm border border-dirty/25 bg-dirty-soft/50 px-2 py-1.5">
-      {files.map((file) => (
-        <li key={file} className="font-mono text-[11.5px] break-all text-ink-2">
-          {file}
-        </li>
-      ))}
-    </ul>
   );
 }

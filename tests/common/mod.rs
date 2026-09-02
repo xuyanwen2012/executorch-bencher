@@ -69,6 +69,7 @@ impl TestContext {
             data_root: self._data_dir.path().to_path_buf(),
             artifact_root: self.artifact_root.clone(),
             model_root: self.model_root.clone(),
+            model_register_roots: vec![self.model_root.clone()],
             temporary_dir: self.temporary_dir.clone(),
             trash_dir: self._data_dir.path().join("trash"),
             dashboard_dist: None,

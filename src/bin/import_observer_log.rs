@@ -21,14 +21,13 @@ use executorch_bencher::domain::{CorrectnessResult, DeviceClass, ExitStatus, Pla
 use executorch_bencher::model_registry::{
     ExternalModelStorage, ModelAsset, ModelStorage, find_by_sha256,
 };
-use executorch_bencher::runs::{
-    AndroidDeviceState, HostState, LinuxHostState, NewRun, insert_run,
-};
+use executorch_bencher::host_rules::{HostInput, host_state as validate_host_state};
+use executorch_bencher::runs::{HostState, NewRun, insert_run};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use uuid::Uuid;
@@ -260,36 +259,25 @@ fn parse_log(text: &str) -> Result<Vec<Record>, String> {
     Ok(records)
 }
 
-fn host_state(h: &HostSpec, platform: Platform) -> Result<HostState, String> {
-    match platform {
-        Platform::Linux => {
-            let need = |v: &Option<String>, name: &str| {
-                v.clone()
-                    .ok_or_else(|| format!("linux host is missing host.{name}"))
-            };
-            Ok(HostState::Linux(LinuxHostState {
-                os: need(&h.os, "os")?,
-                kernel: need(&h.kernel, "kernel")?,
-                cpu_model: need(&h.cpu_model, "cpu_model")?,
-                cpu_count: h.cpu_count,
-                memory_bytes: h.memory_bytes,
-                accelerator: need(&h.accelerator, "accelerator")?,
-                accelerator_driver: h.accelerator_driver.clone(),
-                uptime_seconds: None,
-                thermal_throttling: None,
-            }))
-        }
-        Platform::Android => Ok(HostState::Android(AndroidDeviceState {
-            os: h.os.clone(),
-            kernel: h.kernel.clone(),
-            soc: h.cpu_model.clone(),
-            cpu_count: h.cpu_count,
-            memory_bytes: h.memory_bytes,
-            gpu: h.accelerator.clone(),
-            gpu_driver: h.accelerator_driver.clone(),
-            ..Default::default()
-        })),
-    }
+/// Applies the same platform and device-class rules as `POST /api/v1/runs`
+/// (see `host_rules`), so an import can never write a snapshot the HTTP
+/// path would reject.
+fn host_state(
+    h: &HostSpec,
+    platform: Platform,
+    device_class: DeviceClass,
+) -> Result<HostState, String> {
+    let input = HostInput {
+        host_os: h.os.clone(),
+        host_kernel: h.kernel.clone(),
+        host_cpu_model: h.cpu_model.clone(),
+        host_cpu_count: h.cpu_count,
+        host_memory_bytes: h.memory_bytes,
+        host_accelerator: h.accelerator.clone(),
+        host_accelerator_driver: h.accelerator_driver.clone(),
+        ..Default::default()
+    };
+    validate_host_state(&input, platform, device_class).map_err(|err| format!("host: {err}"))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -333,25 +321,29 @@ async fn resolve_model(pool: &SqlitePool, tag: &str, spec: &ModelSpec) -> Result
     Ok(asset)
 }
 
-async fn already_imported(
+/// Every `(tag, repetition)` already imported from the log with this
+/// SHA-256, so the import is idempotent without a query per record.
+async fn imported_repetitions(
     pool: &SqlitePool,
     log_sha256: &str,
-    tag: &str,
-    repetition: i64,
-) -> Result<bool, String> {
-    let row = sqlx::query(
-        "SELECT count(*) AS c FROM runs
-         WHERE json_extract(input_parameters, '$.import.log_sha256') = ?
-           AND json_extract(input_parameters, '$.import.tag') = ?
-           AND repetition = ?",
+) -> Result<HashSet<(String, i64)>, String> {
+    let rows = sqlx::query(
+        "SELECT json_extract(input_parameters, '$.import.tag') AS tag, repetition
+         FROM runs
+         WHERE json_extract(input_parameters, '$.import.log_sha256') = ?",
     )
     .bind(log_sha256)
-    .bind(tag)
-    .bind(repetition)
-    .fetch_one(pool)
+    .fetch_all(pool)
     .await
     .map_err(|err| format!("duplicate check failed: {err}"))?;
-    Ok(row.get::<i64, _>("c") > 0)
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let tag: Option<String> = row.get("tag");
+            let repetition: i64 = row.get("repetition");
+            tag.map(|tag| (tag, repetition))
+        })
+        .collect())
 }
 
 async fn run(manifest_path: &Path) -> Result<(), String> {
@@ -379,7 +371,7 @@ async fn run(manifest_path: &Path) -> Result<(), String> {
     if device_class == DeviceClass::Internal {
         return Err("this importer only records external hosts; internal lab devices need the full snapshot a collector captures".into());
     }
-    let host = host_state(&manifest.host, platform)?;
+    let host = host_state(&manifest.host, platform, device_class)?;
 
     let log_path: PathBuf = manifest_dir.join(&manifest.log);
     let log_bytes =
@@ -442,7 +434,11 @@ async fn run(manifest_path: &Path) -> Result<(), String> {
     let mut skipped_existing = 0usize;
     let mut skipped_tags = 0usize;
 
-    for record in &records {
+    // One query up front instead of one per record: every (tag, repetition)
+    // this log already contributed.
+    let imported = imported_repetitions(&pool, &log_sha256).await?;
+
+    for (index, record) in records.iter().enumerate() {
         if let Some(reason) = manifest.skip_tags.get(&record.tag) {
             eprintln!("skip {} rep{}: {reason}", record.tag, record.rep);
             skipped_tags += 1;
@@ -452,7 +448,7 @@ async fn run(manifest_path: &Path) -> Result<(), String> {
         if repetition < 0 {
             return Err(format!("{} rep{}: repetitions start at 1", record.tag, record.rep));
         }
-        if already_imported(&pool, &log_sha256, &record.tag, repetition).await? {
+        if imported.contains(&(record.tag.clone(), repetition)) {
             skipped_existing += 1;
             continue;
         }
@@ -580,7 +576,7 @@ async fn run(manifest_path: &Path) -> Result<(), String> {
                 let started_at = match f.started_at {
                     Some(t) => t,
                     None => {
-                        let last_seen = records[..records.iter().position(|r| std::ptr::eq(r, record)).unwrap()]
+                        let last_seen = records[..index]
                             .iter()
                             .rev()
                             .find_map(|r| r.observer.as_ref().map(|o| o.inference_end_ms))

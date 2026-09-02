@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{env, fmt};
 
 /// Storage limits and retention knobs that aren't filesystem roots.
@@ -32,6 +32,13 @@ pub struct Config {
     pub data_root: PathBuf,
     pub artifact_root: PathBuf,
     pub model_root: PathBuf,
+    /// Directories beneath which `POST /api/v1/models/register` may
+    /// register `.pte` files in place (env `MODEL_REGISTER_ROOTS`,
+    /// colon-separated; default: just the model root). Paths outside every
+    /// listed root are rejected, so an unauthenticated client cannot probe
+    /// or hash arbitrary server files. Only the HTTP route is confined; the
+    /// importer and Rust callers register wherever the operator points them.
+    pub model_register_roots: Vec<PathBuf>,
     pub temporary_dir: PathBuf,
     pub trash_dir: PathBuf,
     /// Built dashboard output directory to serve at `/` (env
@@ -127,6 +134,29 @@ fn parse_usize_var(name: &str, default: usize) -> Result<usize, ConfigError> {
     }
 }
 
+/// Reads a colon-separated list of directories from `name`, defaulting to
+/// `[default]` when unset. An explicitly set but empty value, or an entry
+/// that is empty after trimming, is an error rather than a silent skip.
+fn path_list_var(name: &str, default: &Path) -> Result<Vec<PathBuf>, ConfigError> {
+    match env::var(name) {
+        Err(_) => Ok(vec![default.to_path_buf()]),
+        Ok(value) if value.trim().is_empty() => Err(ConfigError(format!(
+            "{name} environment variable is empty"
+        ))),
+        Ok(value) => value
+            .split(':')
+            .map(|entry| {
+                let entry = entry.trim();
+                if entry.is_empty() {
+                    Err(ConfigError(format!("{name} contains an empty entry")))
+                } else {
+                    Ok(PathBuf::from(entry))
+                }
+            })
+            .collect(),
+    }
+}
+
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         let listen_addr = match env::var("LISTEN_ADDR") {
@@ -150,6 +180,7 @@ impl Config {
         let model_root = path_var_or_default("MODEL_ROOT", &data_root, "models")?;
         let temporary_dir = path_var_or_default("TEMPORARY_DIR", &data_root, "temporary")?;
         let trash_dir = path_var_or_default("TRASH_DIR", &data_root, "trash")?;
+        let model_register_roots = path_list_var("MODEL_REGISTER_ROOTS", &model_root)?;
         let dashboard_dist = optional_path_var("DASHBOARD_DIST")?;
 
         let defaults = StorageLimits::default();
@@ -174,6 +205,7 @@ impl Config {
             data_root,
             artifact_root,
             model_root,
+            model_register_roots,
             temporary_dir,
             trash_dir,
             dashboard_dist,
@@ -238,6 +270,7 @@ mod tests {
         "MODEL_ROOT",
         "TEMPORARY_DIR",
         "TRASH_DIR",
+        "MODEL_REGISTER_ROOTS",
         "DASHBOARD_DIST",
         "MAX_ARTIFACT_UPLOAD_BYTES",
         "OUTPUT_PREVIEW_LENGTH",
@@ -288,6 +321,48 @@ mod tests {
         }
         let err = Config::from_env().expect_err("should fail with empty DATABASE_URL");
         assert!(err.to_string().contains("DATABASE_URL"));
+        clear_env();
+    }
+
+    #[test]
+    fn model_register_roots_default_to_the_model_root() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_env();
+        unsafe {
+            env::set_var("DATABASE_URL", "sqlite://data/benchmarks.sqlite3");
+            env::set_var("MODEL_ROOT", "/srv/models");
+        }
+        let config = Config::from_env().expect("should load config");
+        assert_eq!(config.model_register_roots, vec![PathBuf::from("/srv/models")]);
+        clear_env();
+    }
+
+    #[test]
+    fn model_register_roots_parse_a_colon_separated_list() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_env();
+        unsafe {
+            env::set_var("DATABASE_URL", "sqlite://data/benchmarks.sqlite3");
+            env::set_var("MODEL_REGISTER_ROOTS", "/mnt/share/models: /srv/models ");
+        }
+        let config = Config::from_env().expect("should load config");
+        assert_eq!(
+            config.model_register_roots,
+            vec![PathBuf::from("/mnt/share/models"), PathBuf::from("/srv/models")]
+        );
+        clear_env();
+    }
+
+    #[test]
+    fn empty_model_register_roots_are_rejected() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_env();
+        unsafe {
+            env::set_var("DATABASE_URL", "sqlite://data/benchmarks.sqlite3");
+            env::set_var("MODEL_REGISTER_ROOTS", "/srv/models::/other");
+        }
+        let err = Config::from_env().expect_err("an empty entry should fail");
+        assert!(err.to_string().contains("MODEL_REGISTER_ROOTS"));
         clear_env();
     }
 

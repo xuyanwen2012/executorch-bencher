@@ -1,15 +1,43 @@
 // URL-backed filter state for the results and runs pages. Filters live in
 // the query string so a filtered view can be shared or reloaded, and a
 // results row can link to exactly its runs by passing its full key.
+import type { components } from "../api/client";
 
-export const PLATFORMS = ["android", "linux"] as const;
-export type Platform = (typeof PLATFORMS)[number];
+// The enumerations come from the generated contract. Each runtime array is
+// checked against its schema type both ways: a variant missing from the
+// object literal is a missing property, an extra one is an excess property,
+// so adding a value to the backend enum fails `tsc` here until it is listed.
+export type Platform = components["schemas"]["Platform"];
+export type DeviceClass = components["schemas"]["DeviceClass"];
+export type ExitStatus = components["schemas"]["ExitStatus"];
+export type CorrectnessResult = components["schemas"]["CorrectnessResult"];
+
+/** Every variant of a string union, in the order the caller lists them. */
+function variants<T extends string>(all: Record<T, true>): readonly T[] {
+  return Object.keys(all) as T[];
+}
+
+export const PLATFORMS = variants<Platform>({ android: true, linux: true });
 
 /** How much the device let the collector see: `internal` is a lab device
  * with the full BSP/driver/clock snapshot, `external` a retail phone or a
  * Linux box where those dimensions do not exist. */
-export const DEVICE_CLASSES = ["internal", "external"] as const;
-export type DeviceClass = (typeof DEVICE_CLASSES)[number];
+export const DEVICE_CLASSES = variants<DeviceClass>({ internal: true, external: true });
+
+export const EXIT_STATUSES = variants<ExitStatus>({
+  succeeded: true,
+  crashed: true,
+  timed_out: true,
+  cancelled: true,
+  infrastructure_error: true,
+});
+
+export const CORRECTNESS_RESULTS = variants<CorrectnessResult>({
+  passed: true,
+  failed: true,
+  not_checked: true,
+  validator_error: true,
+});
 
 export const RESULTS_FILTER_KEYS = [
   "platform",
@@ -83,11 +111,6 @@ export function runsFiltersToParams(filters: RunsFilters): URLSearchParams {
 export function hasAnyFilter(filters: Record<string, string | undefined>): boolean {
   return Object.values(filters).some((v) => v !== undefined && v !== "");
 }
-
-export const EXIT_STATUSES = ["succeeded", "crashed", "timed_out", "cancelled", "infrastructure_error"] as const;
-export type ExitStatus = (typeof EXIT_STATUSES)[number];
-export const CORRECTNESS_RESULTS = ["passed", "failed", "not_checked", "validator_error"] as const;
-export type CorrectnessResult = (typeof CORRECTNESS_RESULTS)[number];
 
 function oneOf<T extends string>(values: readonly T[], value: string | undefined): T | undefined {
   return values.find((v) => v === value);

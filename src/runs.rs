@@ -17,8 +17,35 @@ impl fmt::Display for RunsError {
 
 impl std::error::Error for RunsError {}
 
+const UNIQUE_VIOLATION_PREFIX: &str = "runs unique constraint violated: ";
+const FOREIGN_KEY_VIOLATION_PREFIX: &str = "runs foreign key violated: ";
+
+impl RunsError {
+    /// True when the underlying database error was a UNIQUE violation
+    /// (for `insert_run`: the run ID already exists). Detected from the
+    /// driver's structured error kind at conversion time, never by
+    /// matching SQLite's message text.
+    pub fn is_unique_violation(&self) -> bool {
+        self.0.starts_with(UNIQUE_VIOLATION_PREFIX)
+    }
+
+    /// True when the underlying database error was a FOREIGN KEY violation
+    /// (a referenced model asset or artifact row does not exist).
+    pub fn is_foreign_key_violation(&self) -> bool {
+        self.0.starts_with(FOREIGN_KEY_VIOLATION_PREFIX)
+    }
+}
+
 impl From<sqlx::Error> for RunsError {
     fn from(err: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(db_err) = &err {
+            if db_err.is_unique_violation() {
+                return RunsError(format!("{UNIQUE_VIOLATION_PREFIX}{db_err}"));
+            }
+            if db_err.is_foreign_key_violation() {
+                return RunsError(format!("{FOREIGN_KEY_VIOLATION_PREFIX}{db_err}"));
+            }
+        }
         RunsError(format!("runs database error: {err}"))
     }
 }

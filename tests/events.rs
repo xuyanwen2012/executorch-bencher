@@ -124,7 +124,8 @@ async fn write_paths_publish_events_with_the_new_records_id() {
     let artifact_id = upload["id"].as_str().unwrap().to_string();
 
     // Model registration.
-    let model_path = ctx.model_root.parent().unwrap().join("events-model.pte");
+    std::fs::create_dir_all(&ctx.model_root).unwrap();
+    let model_path = ctx.model_root.join("events-model.pte");
     std::fs::write(&model_path, b"events model bytes").unwrap();
     let registered = post_json(
         app.clone(),
@@ -224,4 +225,71 @@ fn event_names_match_the_documented_set() {
     assert_eq!(a.name(), "artifact.created");
     assert_eq!(m.name(), "model.registered");
     assert_eq!(a.data()["kind"], "stdout");
+}
+
+/// A subscriber that falls further behind than the bus buffers is
+/// disconnected (the stream ends) rather than silently continuing with a
+/// gap it cannot see; it is expected to reconnect and re-fetch.
+#[tokio::test]
+async fn a_subscriber_that_falls_too_far_behind_is_disconnected() {
+    let ctx = common::test_context().await;
+    let app = http::router(ctx.pool.clone(), ctx.config());
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Publish more events than the bus buffers (256) without reading any.
+    let published = 300;
+    for i in 0..published {
+        let upload = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/artifacts?kind=prompt")
+                    .header("content-type", "text/plain")
+                    .body(Body::from(format!("payload {i}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(upload.status(), StatusCode::CREATED);
+    }
+
+    let mut stream = response.into_body().into_data_stream();
+    let mut text = String::new();
+    let mut ended = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, stream.next()).await {
+            Ok(Some(Ok(chunk))) => text.push_str(&String::from_utf8_lossy(&chunk)),
+            Ok(None) => {
+                ended = true;
+                break;
+            }
+            _ => break,
+        }
+    }
+    assert!(ended, "the lagged stream should end, got:\n{text}");
+    // The lag signal arrives before any of the still-buffered events, and
+    // the stream ends right there: the client sees a clean disconnect, not
+    // a partial replay with an invisible gap.
+    let delivered = text.matches("event: artifact.created").count();
+    assert!(
+        delivered < published,
+        "a lagged subscriber must not receive every event ({delivered} of {published})"
+    );
 }

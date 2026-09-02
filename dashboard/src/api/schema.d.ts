@@ -720,8 +720,11 @@ export interface components {
         Platform: "android" | "linux";
         RegisterModelRequest: {
             /**
-             * @description Absolute path to an existing `.pte` file on the server's filesystem.
-             *     External mode never copies this file - see
+             * @description Absolute path to an existing `.pte` file on the server's filesystem,
+             *     beneath one of the server's registrable model roots
+             *     (`MODEL_REGISTER_ROOTS`, default the model root). Symlinks are
+             *     resolved before the root check, so neither `..` nor a symlink can
+             *     escape a root. External mode never copies this file - see
              *     `specs/artifact-storage` - "External model assets are registered
              *     once without copying". Registering the same file's SHA-256 again
              *     reuses the cached checksum rather than rehashing or copying it.
@@ -1396,7 +1399,7 @@ export interface operations {
                     "application/json": components["schemas"]["ModelAssetResponse"];
                 };
             };
-            /** @description The path does not exist or is not a regular file. */
+            /** @description The body is not valid JSON, or the path is not absolute, does not name a `.pte` file, does not exist, is not a regular file, or lies outside every registrable model root. `details.field` is `path`. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1652,6 +1655,15 @@ export interface operations {
             };
             /** @description A run with this ID already exists; it is unchanged. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description The body exceeds the maximum run record size (2 MiB). */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

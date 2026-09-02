@@ -17,9 +17,11 @@ use utoipa::openapi::OpenApi as OpenApiDoc;
 #[openapi(
     info(
         title = "ExecuTorch Bencher API",
-        description = "Internal Android LLM benchmark collection and analysis service. \
-                        Provides HTTP endpoints to ingest, store, and retrieve benchmark run \
-                        results, content-addressed artifacts, and registered model assets.",
+        description = "Internal LLM benchmark collection and analysis service for Android \
+                        phones and Linux hosts. Provides HTTP endpoints to ingest, store, and \
+                        retrieve benchmark run results, content-addressed artifacts, and \
+                        registered model assets. The service has no authentication and is \
+                        meant for a trusted lab network.",
         version = "1.0"
     ),
     tags(
@@ -41,9 +43,11 @@ struct ApiDoc;
 /// `license` field cleared regardless of `CARGO_PKG_LICENSE` (Cargo sets
 /// that env var to an empty string, not unset, when `Cargo.toml` has no
 /// `license` field, which utoipa would otherwise render as an empty
-/// license object).
+/// license object). `info.version` is the same `API_VERSION` that
+/// `GET /api/v1/version` reports, so the two cannot disagree.
 pub fn base_document() -> OpenApiDoc {
     let mut doc = ApiDoc::openapi();
     doc.info.license = None;
+    doc.info.version = crate::version_api::API_VERSION.to_string();
     doc
 }

@@ -1,10 +1,10 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { api, type components } from "../api/client";
 import { unwrap } from "../api/errors";
 import { FilterBar, type ExtraChip, type FilterField } from "../components/FilterBar";
-import { AbsentDash, EmptyState, ErrorState, Loading } from "../components/State";
+import { FOCUS_RING } from "../components/focus";
+import { Absent, AbsentDash, EmptyState, ErrorState, Loading } from "../components/State";
 import {
   CorrectnessBadge,
   DeviceClassBadge,
@@ -13,6 +13,7 @@ import {
   StatusLegend,
   ThrottledBadge,
 } from "../components/Status";
+import { Th } from "../components/Table";
 import { Timestamp } from "../components/Timestamp";
 import {
   CORRECTNESS_RESULTS,
@@ -68,9 +69,16 @@ export function RunsPage() {
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // A filter edit keeps the last list on screen, dimmed, until the new one
+    // arrives. A live `run.created` trims the cache to its first page before
+    // invalidating (see lib/live.ts), so only one page is refetched.
+    placeholderData: keepPreviousData,
   });
+  const updating = runs.isPlaceholderData || (runs.isFetching && !runs.isFetchingNextPage && runs.data !== undefined);
 
-  const setFilters = (next: RunsFilters) => setParams(runsFiltersToParams(next));
+  // Filter edits replace the history entry: the back button should leave
+  // the page, not undo one filter at a time.
+  const setFilters = (next: RunsFilters) => setParams(runsFiltersToParams(next), { replace: true });
   const onFilter = (key: RunsFilterKey, value: string) => setFilters({ ...filters, [key]: value || undefined });
 
   const fields: FilterField<RunsFilterKey>[] = [
@@ -111,7 +119,10 @@ export function RunsPage() {
   }));
 
   const items: Summary[] = runs.data?.pages.flatMap((p) => p.items) ?? [];
-  const complete = !runs.hasNextPage;
+  // "Complete" only once the list for *these* filters has actually loaded:
+  // while pending, or while the previous filters' list stands in, there is
+  // no next page to know about yet.
+  const complete = runs.isSuccess && !runs.isPlaceholderData && !runs.hasNextPage;
 
   return (
     <section>
@@ -148,15 +159,15 @@ export function RunsPage() {
         )
       ) : null}
       {items.length > 0 ? (
-        <>
+        <div className={`transition-opacity ${updating ? "opacity-60" : ""}`} aria-busy={updating}>
           <RunsTable items={items} />
           <div className="mt-3 flex flex-wrap items-center gap-3">
             {runs.hasNextPage ? (
               <button
                 type="button"
                 onClick={() => void runs.fetchNextPage()}
-                disabled={runs.isFetchingNextPage}
-                className="eyebrow rounded-sm border border-rule bg-paper px-3 py-1.5 text-ink-2 hover:border-rule-strong hover:bg-wash disabled:opacity-50"
+                disabled={runs.isFetchingNextPage || runs.isPlaceholderData}
+                className={`eyebrow rounded-sm border border-rule bg-paper px-3 py-1.5 text-ink-2 hover:border-rule-strong hover:bg-wash disabled:opacity-50 ${FOCUS_RING}`}
               >
                 {runs.isFetchingNextPage ? "Loading…" : `Load ${PAGE_SIZE} more`}
               </button>
@@ -168,7 +179,7 @@ export function RunsPage() {
             </span>
           </div>
           <StatusLegend />
-        </>
+        </div>
       ) : null}
     </section>
   );
@@ -224,21 +235,9 @@ function RunsTable({ items }: { items: Summary[] }) {
   );
 }
 
-function Th({ children, className = "", hint }: { children: ReactNode; className?: string; hint?: string }) {
-  return (
-    <th scope="col" title={hint} className={`eyebrow px-2 py-1.5 align-bottom text-ink-3 ${className}`}>
-      {children}
-    </th>
-  );
-}
-
 /** An explicit absent marker for a throughput a run never measured. */
 function NotRecorded({ hint }: { hint: string }) {
-  return (
-    <span className="font-sans text-[11px] whitespace-nowrap text-ink-3 italic" title={hint}>
-      not recorded
-    </span>
-  );
+  return <Absent className="font-sans text-[11px] whitespace-nowrap" title={hint} />;
 }
 
 function RunRow({

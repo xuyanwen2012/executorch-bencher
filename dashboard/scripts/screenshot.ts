@@ -1,11 +1,12 @@
 // Captures the dashboard pages at a wide and a narrow viewport for visual
-// review. Run against the live dev server:
-//   SHOT_DIR=/tmp/shots bun scripts/screenshot.ts
+// review. Run against the live dev server (DASHBOARD_URL, default
+// http://127.0.0.1:$PORT, then the justfile's 3101):
+//   SHOT_DIR=/tmp/shots bun run screenshot
 // Requires `bun add -d playwright` and `bunx playwright install chromium`.
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 
-const BASE = process.env.SHOT_BASE ?? "http://127.0.0.1:3111";
+const BASE = (process.env.DASHBOARD_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3101}`).replace(/\/$/, "");
 const OUT = process.env.SHOT_DIR ?? "./shots";
 const TAG = process.env.SHOT_TAG ?? "";
 

@@ -9,9 +9,10 @@
 use crate::domain::{CorrectnessResult, DeviceClass, ExitStatus, Platform, Sha256Hex};
 use crate::runs::{RunListFilter, RunsError};
 use chrono::{DateTime, Utc};
+use futures_util::TryStreamExt;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 /// Upper bound on rows returned by [`results`] through the HTTP API.
@@ -90,7 +91,7 @@ impl MetricStats {
         if samples.is_empty() {
             return None;
         }
-        samples.sort_by(|a, b| a.partial_cmp(b).expect("throughputs are finite"));
+        samples.sort_by(f64::total_cmp);
         let n = samples.len();
         let median = if n % 2 == 1 {
             samples[n / 2]
@@ -179,10 +180,12 @@ pub async fn results(
     );
     RunListFilter::from(filter).push_where_clauses(&mut qb);
     qb.push(" ORDER BY r.started_at ASC, r.id ASC");
-    let rows = qb.build().fetch_all(pool).await?;
-
+    // Stream the rows instead of loading every matching run first, so
+    // memory is bounded by the number of configurations, not of runs.
+    let query = qb.build();
+    let mut rows = query.fetch(pool);
     let mut groups: BTreeMap<ConfigKey, Accumulator> = BTreeMap::new();
-    for row in rows {
+    while let Some(row) = rows.try_next().await? {
         let model_asset_id: String = row.try_get("model_asset_id")?;
         let platform: String = row.try_get("platform")?;
         let device_class: String = row.try_get("device_class")?;
@@ -256,9 +259,11 @@ pub async fn results(
 
     let mut rows: Vec<ResultRow> = groups
         .into_iter()
-        .map(|(key, acc)| {
-            let first = acc.first_started_at.expect("every group has a run");
-            ResultRow {
+        .filter_map(|(key, acc)| {
+            // A group only exists because a row was accumulated into it,
+            // so `first_started_at` is always set; never panic regardless.
+            let first = acc.first_started_at?;
+            Some(ResultRow {
                 key,
                 device_model: acc.device_model,
                 model_original_name: acc.model_original_name,
@@ -274,7 +279,7 @@ pub async fn results(
                 throttled: acc.throttled,
                 first_started_at: first,
                 last_started_at: acc.last_started_at.unwrap_or(first),
-            }
+            })
         })
         .collect();
 
@@ -307,35 +312,6 @@ pub struct Facets {
     pub host_accelerators: Vec<String>,
 }
 
-async fn distinct_strings(pool: &SqlitePool, column: &str) -> Result<Vec<String>, RunsError> {
-    // Static SQL per column: SQLx refuses runtime-built query strings, and
-    // this keeps the identifier set closed.
-    let sql = match column {
-        "platform" => "SELECT DISTINCT platform AS v FROM runs ORDER BY platform",
-        "device_class" => "SELECT DISTINCT device_class AS v FROM runs ORDER BY device_class",
-        "device_serial" => {
-            "SELECT DISTINCT device_serial AS v FROM runs ORDER BY device_serial"
-        }
-        "git_branch" => {
-            "SELECT DISTINCT git_branch AS v FROM runs WHERE git_branch IS NOT NULL ORDER BY git_branch"
-        }
-        "sumd_driver_version" => {
-            "SELECT DISTINCT sumd_driver_version AS v FROM runs WHERE sumd_driver_version IS NOT NULL ORDER BY sumd_driver_version"
-        }
-        "bsp_version" => {
-            "SELECT DISTINCT bsp_version AS v FROM runs WHERE bsp_version IS NOT NULL ORDER BY bsp_version"
-        }
-        "host_accelerator" => {
-            "SELECT DISTINCT host_accelerator AS v FROM runs WHERE host_accelerator IS NOT NULL ORDER BY host_accelerator"
-        }
-        other => return Err(RunsError(format!("no facet for column {other}"))),
-    };
-    let rows = sqlx::query(sql).fetch_all(pool).await?;
-    rows.into_iter()
-        .map(|row| row.try_get::<String, _>("v").map_err(RunsError::from))
-        .collect()
-}
-
 pub async fn facets(pool: &SqlitePool) -> Result<Facets, RunsError> {
     let model_rows = sqlx::query(
         "SELECT DISTINCT m.id, m.original_name
@@ -355,17 +331,49 @@ pub async fn facets(pool: &SqlitePool) -> Result<Facets, RunsError> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let platforms = distinct_strings(pool, "platform")
-        .await?
+    // One grouped scan yields every distinct value of every facet column at
+    // once, instead of one full-table scan per facet.
+    let rows = sqlx::query(
+        "SELECT platform, device_class, device_serial, git_branch,
+                sumd_driver_version, bsp_version, host_accelerator
+         FROM runs
+         GROUP BY platform, device_class, device_serial, git_branch,
+                  sumd_driver_version, bsp_version, host_accelerator",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut platforms = BTreeSet::new();
+    let mut device_classes = BTreeSet::new();
+    let mut device_serials = BTreeSet::new();
+    let mut git_branches = BTreeSet::new();
+    let mut sumd_driver_versions = BTreeSet::new();
+    let mut bsp_versions = BTreeSet::new();
+    let mut host_accelerators = BTreeSet::new();
+    for row in rows {
+        platforms.insert(row.try_get::<String, _>("platform")?);
+        device_classes.insert(row.try_get::<String, _>("device_class")?);
+        device_serials.insert(row.try_get::<String, _>("device_serial")?);
+        for (column, set) in [
+            ("git_branch", &mut git_branches),
+            ("sumd_driver_version", &mut sumd_driver_versions),
+            ("bsp_version", &mut bsp_versions),
+            ("host_accelerator", &mut host_accelerators),
+        ] {
+            if let Some(value) = row.try_get::<Option<String>, _>(column)? {
+                set.insert(value);
+            }
+        }
+    }
+
+    let platforms = platforms
         .iter()
         .map(|p| {
             Platform::try_from(p.as_str())
                 .map_err(|err| RunsError(format!("invalid stored platform: {err}")))
         })
         .collect::<Result<Vec<_>, _>>()?;
-
-    let device_classes = distinct_strings(pool, "device_class")
-        .await?
+    let device_classes = device_classes
         .iter()
         .map(|c| {
             DeviceClass::try_from(c.as_str())
@@ -376,12 +384,12 @@ pub async fn facets(pool: &SqlitePool) -> Result<Facets, RunsError> {
     Ok(Facets {
         platforms,
         device_classes,
-        device_serials: distinct_strings(pool, "device_serial").await?,
+        device_serials: device_serials.into_iter().collect(),
         models,
-        git_branches: distinct_strings(pool, "git_branch").await?,
-        sumd_driver_versions: distinct_strings(pool, "sumd_driver_version").await?,
-        bsp_versions: distinct_strings(pool, "bsp_version").await?,
-        host_accelerators: distinct_strings(pool, "host_accelerator").await?,
+        git_branches: git_branches.into_iter().collect(),
+        sumd_driver_versions: sumd_driver_versions.into_iter().collect(),
+        bsp_versions: bsp_versions.into_iter().collect(),
+        host_accelerators: host_accelerators.into_iter().collect(),
     })
 }
 

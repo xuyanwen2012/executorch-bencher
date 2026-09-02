@@ -10,9 +10,10 @@ use crate::artifact_store::{
 };
 use crate::events::{ArtifactCreatedEvent, Event};
 use crate::http::AppState;
+use crate::extract::{Path as PathParam, Query};
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{Path as PathParam, Query, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use futures_util::TryStreamExt;
@@ -281,11 +282,12 @@ async fn artifact_metadata(
     }
 }
 
-/// Builds the last path component of `name`, discarding any directory
-/// components - so a stored `original_filename` (itself never used to
-/// choose a filesystem path, see `artifact_store`) can't be turned into a
-/// path-traversing `Content-Disposition` filename either.
-fn safe_download_filename(record: &ArtifactRecord) -> String {
+/// The last path component of the stored `original_filename`, discarding
+/// any directory components - so a name that was never used to choose a
+/// filesystem path (see `artifact_store`) can't be turned into a
+/// path-traversing `Content-Disposition` filename either. Falls back to a
+/// kind-and-hash name when no usable name was recorded.
+fn download_basename(record: &ArtifactRecord) -> String {
     record
         .original_filename
         .as_deref()
@@ -294,6 +296,58 @@ fn safe_download_filename(record: &ArtifactRecord) -> String {
         .filter(|name| !name.is_empty())
         .map(|name| name.to_string())
         .unwrap_or_else(|| format!("{}-{}.bin", record.kind.as_str(), &record.sha256[..12]))
+}
+
+/// Restricts a filename to what is safe inside a quoted `filename="..."`
+/// parameter: printable ASCII minus the quote, backslash, and semicolon.
+/// Anything else (non-ASCII, control characters) becomes `_`. The header
+/// value is therefore always valid, whatever name was uploaded.
+fn ascii_filename(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if (c.is_ascii_graphic() || c == ' ') && !matches!(c, '"' | '\\' | ';') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if sanitized.trim_matches('_').trim().is_empty() {
+        "download.bin".to_string()
+    } else {
+        sanitized
+    }
+}
+
+/// RFC 5987 percent-encoding for the `filename*` parameter: unreserved
+/// characters pass through, everything else is `%XX` per UTF-8 byte.
+fn percent_encode_utf8(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Builds the `Content-Disposition` value for a download: an ASCII-safe
+/// `filename` always, plus an RFC 5987 `filename*` carrying the exact
+/// original name when it was not plain ASCII.
+fn content_disposition(record: &ArtifactRecord) -> String {
+    let original = download_basename(record);
+    let ascii = ascii_filename(&original);
+    if ascii == original {
+        format!("attachment; filename=\"{ascii}\"")
+    } else {
+        format!(
+            "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
+            percent_encode_utf8(&original)
+        )
+    }
 }
 
 async fn stream_artifact_content(state: &AppState, id: Uuid, attachment: bool) -> Response {
@@ -318,17 +372,15 @@ async fn stream_artifact_content(state: &AppState, id: Uuid, attachment: bool) -
         .header(header::CONTENT_TYPE, content_type);
 
     if attachment {
-        let filename = safe_download_filename(&record);
-        response = response.header(
-            header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{filename}\""),
-        );
+        response = response.header(header::CONTENT_DISPOSITION, content_disposition(&record));
     }
 
-    response
-        .body(Body::from_stream(ReaderStream::new(reader)))
-        .expect("response with a streamed body is always well-formed")
-        .into_response()
+    match response.body(Body::from_stream(ReaderStream::new(reader))) {
+        Ok(response) => response.into_response(),
+        // Every header above is built from validated or sanitized input,
+        // so this is unreachable; never panic on a request path regardless.
+        Err(_) => ApiError::internal("internal error building artifact response").into_response(),
+    }
 }
 
 /// Stream an artifact's content, decompressing transparently if it is

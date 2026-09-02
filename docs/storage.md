@@ -114,7 +114,7 @@ GET  /api/v1/artifacts/{id}/metadata         kind, size, media type, compression
 GET  /api/v1/artifacts/{id}/content          streamed, decompressed content
 GET  /api/v1/artifacts/{id}/download         same, with a safe Content-Disposition filename
 
-POST /api/v1/models/register                {"path": "/abs/path/to/model.pte"}
+POST /api/v1/models/register                {"path": "/abs/path/to/model.pte"} (beneath MODEL_REGISTER_ROOTS)
 GET  /api/v1/models                          list all registered models
 GET  /api/v1/models/{id}                     one model's metadata
 POST /api/v1/models/{id}/verify              full re-verification (always rehashes)
@@ -122,8 +122,13 @@ POST /api/v1/models/{id}/verify              full re-verification (always rehash
 GET  /api/v1/runs/{id}                       a run plus its attached artifacts' and model's metadata
 ```
 
-None of these routes are authenticated - the pre-existing service has no
-authentication system, and this change does not add one.
+None of these routes are authenticated - the service has no authentication
+system and is meant for a trusted lab network. Because registration is
+therefore open to anyone who can reach the port, it only accepts absolute
+`.pte` paths beneath the configured `MODEL_REGISTER_ROOTS` (default: the
+model root), resolved with symlinks followed, so it cannot be used to
+discover or hash arbitrary server files. The importer and other Rust
+callers of `ExternalModelStorage::register` are not confined.
 
 ## Missing-file behavior
 

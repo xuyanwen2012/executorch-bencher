@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { failureOf } from "../api/errors";
 import { ABSENT } from "../lib/format";
+import { FOCUS_RING } from "./focus";
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
@@ -36,7 +37,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry: () => 
         <button
           type="button"
           onClick={onRetry}
-          className="eyebrow mt-3 rounded-sm border border-danger/40 bg-paper px-3 py-1.5 text-danger hover:bg-danger/5"
+          className={`eyebrow mt-3 rounded-sm border border-danger/40 bg-paper px-3 py-1.5 text-danger hover:bg-danger/5 ${FOCUS_RING}`}
         >
           Retry
         </button>
@@ -56,18 +57,29 @@ export function EmptyState({ title, hint, action }: { title: string; hint?: stri
 }
 
 /** Explicit marker for a value the backend did not record. */
-export function Absent({ label = ABSENT }: { label?: string }) {
+export function Absent({
+  label = ABSENT,
+  title = "The backend recorded no value for this field.",
+  className = "",
+}: {
+  label?: string;
+  /** Why the value is absent, on hover. */
+  title?: string;
+  /** Extra sizing or layout classes for a dense cell. */
+  className?: string;
+}) {
   return (
-    <span className="text-ink-3 italic" title="The backend recorded no value for this field.">
+    <span className={`text-ink-3 italic ${className}`} title={title}>
       {label}
     </span>
   );
 }
 
-/** Compact absent marker for dense table cells. */
-export function AbsentDash({ title = "not recorded" }: { title?: string }) {
+/** Compact absent marker for dense table cells. The dash alone reads as
+ * nothing to a screen reader, so the reason is carried as its label. */
+export function AbsentDash({ title = ABSENT }: { title?: string }) {
   return (
-    <span className="text-ink-3" title={title}>
+    <span className="text-ink-3" title={title} role="img" aria-label={title}>
       –
     </span>
   );

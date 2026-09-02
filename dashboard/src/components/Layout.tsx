@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet } from "react-router";
 import { api } from "../api/client";
 import { unwrap } from "../api/errors";
-import { type LiveState, useLiveEvents } from "../lib/live";
+import { type LiveState, RECONNECT_CAP_MS, useLiveEvents } from "../lib/live";
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -42,32 +42,48 @@ export function Layout() {
   );
 }
 
+const LIVE_LABEL: Record<LiveState, string> = {
+  live: "live",
+  connecting: "connecting",
+  off: "live updates off",
+};
+
+const LIVE_TITLE: Record<LiveState, string> = {
+  live: "New runs appear automatically as they are recorded.",
+  connecting: "Opening the event stream; new runs will appear automatically once it is up.",
+  off: `Not receiving live updates. The dashboard reopens the stream on its own, waiting longer between attempts (up to ${
+    RECONNECT_CAP_MS / 1000
+  } s); reload to see new runs sooner.`,
+};
+
+const LIVE_DOT: Record<LiveState, string> = {
+  live: "bg-ok",
+  connecting: "bg-warn",
+  off: "bg-rule-strong",
+};
+
 /** Whether the page is receiving live change notifications. When the
- * stream is off, everything still works by navigation and reload; the
- * browser retries the connection in the background. */
-function LiveIndicator({ state }: { state: LiveState }) {
-  const label = state === "live" ? "live" : state === "connecting" ? "connecting" : "live updates off";
-  const title =
-    state === "live"
-      ? "New runs appear automatically as they are recorded."
-      : "Not receiving live updates; reload to see new runs. Reconnecting in the background.";
-  const dot = state === "live" ? "bg-ok" : state === "connecting" ? "bg-warn" : "bg-rule-strong";
+ * stream is off, everything still works by navigation and reload, and the
+ * stream is reopened with exponential backoff (see `openLiveStream`). */
+export function LiveIndicator({ state }: { state: LiveState }) {
   return (
     <span
       className="ml-auto flex items-center gap-1.5 font-mono text-[11px] text-ink-3"
-      title={title}
+      title={LIVE_TITLE[state]}
       data-testid="live-indicator"
       data-state={state}
+      role="status"
+      aria-live="polite"
     >
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden="true" />
-      {label}
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${LIVE_DOT[state]}`} aria-hidden="true" />
+      {LIVE_LABEL[state]}
     </span>
   );
 }
 
 /** The backend's own identity, so a reader knows which contract produced
- * the numbers on screen. Silent when the call fails — the pages already
- * report unreachability where it matters. */
+ * the numbers on screen. When the call fails it says so briefly; the pages
+ * report unreachability in full where it matters. */
 function Footer() {
   const version = useQuery({
     queryKey: ["version"],
@@ -83,6 +99,10 @@ function Footer() {
             <span title="Database schema version">schema v{version.data.schema_version}</span>
             <span title="Server build version">server {version.data.server_version}</span>
           </>
+        ) : version.isError ? (
+          <span title="GET /api/v1/version failed; the backend may be unreachable." data-testid="version-unavailable">
+            version unavailable
+          </span>
         ) : null}
         <a href="/docs" className="ml-auto underline decoration-rule-strong underline-offset-2 hover:text-ink">
           API docs

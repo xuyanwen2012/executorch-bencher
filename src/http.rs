@@ -4,8 +4,10 @@ use axum::{Router, extract::State, http::StatusCode};
 use sqlx::SqlitePool;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-use utoipa_swagger_ui::SwaggerUi;
+use axum::response::IntoResponse;
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::services::{ServeDir, ServeFile};
+use utoipa_swagger_ui::SwaggerUi;
 
 /// Shared state for every HTTP handler: the database pool and the storage
 /// configuration (roots, limits) artifact/model routes need.
@@ -61,7 +63,17 @@ pub fn router(pool: SqlitePool, config: Config) -> Router {
         None => router,
     };
 
+    // A panic inside a handler becomes a `500 internal_error` envelope
+    // instead of an aborted connection, so a single bad request can never
+    // take a connection task down silently. See `specs/ingestion-service` -
+    // "HTTP error responses use a consistent JSON envelope".
+    let router = router.layer(CatchPanicLayer::custom(panic_response));
+
     router.with_state(state)
+}
+
+fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> axum::response::Response {
+    crate::api_error::ApiError::internal("internal server error").into_response()
 }
 
 /// The generated OpenAPI document alone, with no live database connection

@@ -16,15 +16,14 @@ use crate::domain::{
     validate_env_vars, validate_json,
 };
 use crate::events::{Event, RunCreatedEvent};
+pub use crate::host_rules::{FieldError, field_err};
+use crate::host_rules::{HostInput, host_state, non_negative};
 use crate::http::AppState;
 use crate::model_registry::get_model_asset;
-use crate::runs::{
-    AndroidDeviceState, AndroidLabConfig, HostState, LinuxHostState, NewRun, get_run, insert_run,
-    output_preview,
-};
+use crate::runs::{NewRun, get_run, insert_run, output_preview};
 use crate::runs_api::{RunResponse, build_run_response};
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{FromRequest, Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -163,20 +162,6 @@ pub struct CreateRunRequest {
     pub error_summary: Option<String>,
 }
 
-/// A validation failure naming the request field it concerns.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FieldError {
-    pub field: &'static str,
-    pub message: String,
-}
-
-fn field_err(field: &'static str, message: impl Into<String>) -> FieldError {
-    FieldError {
-        field,
-        message: message.into(),
-    }
-}
-
 impl From<FieldError> for ApiError {
     fn from(err: FieldError) -> Self {
         ApiError::invalid_field(err.field, format!("{}: {}", err.field, err.message))
@@ -187,14 +172,6 @@ fn sha(field: &'static str, raw: String) -> Result<Sha256Hex, FieldError> {
     Sha256Hex::try_from(raw).map_err(|err| field_err(field, err.to_string()))
 }
 
-fn non_negative(field: &'static str, value: i64) -> Result<i64, FieldError> {
-    if value < 0 {
-        Err(field_err(field, "must not be negative"))
-    } else {
-        Ok(value)
-    }
-}
-
 fn non_negative_f64(field: &'static str, value: f64) -> Result<f64, FieldError> {
     if !value.is_finite() || value < 0.0 {
         Err(field_err(field, "must be a finite, non-negative number"))
@@ -203,137 +180,28 @@ fn non_negative_f64(field: &'static str, value: f64) -> Result<f64, FieldError> 
     }
 }
 
-fn positive_clock(field: &'static str, value: Option<i64>) -> Result<Option<i64>, FieldError> {
-    match value {
-        Some(v) if v <= 0 => Err(field_err(field, "must be greater than zero MHz")),
-        other => Ok(other),
-    }
-}
-
-fn temperature(field: &'static str, value: Option<f64>) -> Result<Option<f64>, FieldError> {
-    match value {
-        Some(v) if !(-40.0..=150.0).contains(&v) => {
-            Err(field_err(field, "must be between -40 and 150 degrees Celsius"))
-        }
-        other => Ok(other),
-    }
-}
-
-fn required<T>(field: &'static str, value: Option<T>, why: &str) -> Result<T, FieldError> {
-    value.ok_or_else(|| field_err(field, format!("required {why}")))
-}
-
-fn forbidden<T>(field: &'static str, value: &Option<T>, why: &str) -> Result<(), FieldError> {
-    if value.is_some() {
-        Err(field_err(field, format!("must be null {why}")))
-    } else {
-        Ok(())
-    }
-}
-
-/// Builds the platform-specific snapshot, enforcing the same rules as the
-/// database CHECK so a violation is reported by field instead of as a
-/// constraint failure.
-fn host_state(
-    req: &CreateRunRequest,
-    platform: Platform,
-    device_class: DeviceClass,
-) -> Result<HostState, FieldError> {
-    let gpu = positive_clock("gpu_clock_mhz", req.gpu_clock_mhz)?;
-    let mif = positive_clock("mif_clock_mhz", req.mif_clock_mhz)?;
-    let int = positive_clock("int_clock_mhz", req.int_clock_mhz)?;
-    let initial = temperature("initial_temperature_celsius", req.initial_temperature_celsius)?;
-    let max = temperature("max_temperature_celsius", req.max_temperature_celsius)?;
-    if let Some(uptime) = req.device_uptime_seconds {
-        non_negative("device_uptime_seconds", uptime)?;
-    }
-    if let Some(n) = req.host_cpu_count
-        && n <= 0
-    {
-        return Err(field_err("host_cpu_count", "must be greater than zero"));
-    }
-    if let Some(n) = req.host_memory_bytes {
-        non_negative("host_memory_bytes", n)?;
-    }
-
-    match platform {
-        Platform::Linux => {
-            let why = "on a linux run";
-            forbidden("bsp_version", &req.bsp_version, why)?;
-            forbidden("sumd_driver_version", &req.sumd_driver_version, why)?;
-            forbidden("gpu_clock_mhz", &gpu, why)?;
-            forbidden("mif_clock_mhz", &mif, why)?;
-            forbidden("int_clock_mhz", &int, why)?;
-            forbidden("battery_charging", &req.battery_charging, why)?;
-            forbidden("initial_temperature_celsius", &initial, why)?;
-            forbidden("max_temperature_celsius", &max, why)?;
-            Ok(HostState::Linux(LinuxHostState {
-                os: required("host_os", req.host_os.clone(), why)?,
-                kernel: required("host_kernel", req.host_kernel.clone(), why)?,
-                cpu_model: required("host_cpu_model", req.host_cpu_model.clone(), why)?,
-                cpu_count: req.host_cpu_count,
-                memory_bytes: req.host_memory_bytes,
-                accelerator: required("host_accelerator", req.host_accelerator.clone(), why)?,
-                accelerator_driver: req.host_accelerator_driver.clone(),
-                uptime_seconds: req.device_uptime_seconds,
-                thermal_throttling: req.thermal_throttling,
-            }))
-        }
-        Platform::Android => {
-            let lab_fields = [
-                ("bsp_version", req.bsp_version.is_some()),
-                ("sumd_driver_version", req.sumd_driver_version.is_some()),
-                ("gpu_clock_mhz", gpu.is_some()),
-                ("mif_clock_mhz", mif.is_some()),
-                ("int_clock_mhz", int.is_some()),
-            ];
-            let present = lab_fields.iter().filter(|(_, p)| *p).count();
-            let lab = if present == lab_fields.len() {
-                Some(AndroidLabConfig {
-                    bsp_version: req.bsp_version.clone().unwrap(),
-                    sumd_driver_version: req.sumd_driver_version.clone().unwrap(),
-                    gpu_clock_mhz: gpu.unwrap(),
-                    mif_clock_mhz: mif.unwrap(),
-                    int_clock_mhz: int.unwrap(),
-                })
-            } else if present == 0 {
-                None
-            } else {
-                let missing = lab_fields.iter().find(|(_, p)| !*p).map(|(f, _)| *f).unwrap();
-                return Err(field_err(
-                    missing,
-                    "BSP version, SUMD driver version, and the GPU/MIF/INT clocks are recorded all together or not at all",
-                ));
-            };
-            let state = AndroidDeviceState {
-                os: req.host_os.clone(),
-                kernel: req.host_kernel.clone(),
-                soc: req.host_cpu_model.clone(),
-                cpu_count: req.host_cpu_count,
-                memory_bytes: req.host_memory_bytes,
-                gpu: req.host_accelerator.clone(),
-                gpu_driver: req.host_accelerator_driver.clone(),
-                uptime_seconds: req.device_uptime_seconds,
-                battery_charging: req.battery_charging,
-                initial_temperature_celsius: initial,
-                max_temperature_celsius: max,
-                thermal_throttling: req.thermal_throttling,
-                lab,
-            };
-            if device_class == DeviceClass::Internal {
-                let why = "on an internal android device";
-                if state.lab.is_none() {
-                    let missing = lab_fields.iter().find(|(_, p)| !*p).map(|(f, _)| *f).unwrap();
-                    return Err(field_err(missing, format!("required {why}")));
-                }
-                required("device_uptime_seconds", state.uptime_seconds, why)?;
-                required("battery_charging", state.battery_charging, why)?;
-                required("initial_temperature_celsius", state.initial_temperature_celsius, why)?;
-                required("max_temperature_celsius", state.max_temperature_celsius, why)?;
-                required("thermal_throttling", state.thermal_throttling, why)?;
-            }
-            Ok(HostState::Android(state))
-        }
+/// The request's host fields, handed to the shared platform rules in
+/// `host_rules` (the same rules the importer applies, so both write paths
+/// accept exactly the same snapshots).
+fn host_input(req: &CreateRunRequest) -> HostInput {
+    HostInput {
+        host_os: req.host_os.clone(),
+        host_kernel: req.host_kernel.clone(),
+        host_cpu_model: req.host_cpu_model.clone(),
+        host_cpu_count: req.host_cpu_count,
+        host_memory_bytes: req.host_memory_bytes,
+        host_accelerator: req.host_accelerator.clone(),
+        host_accelerator_driver: req.host_accelerator_driver.clone(),
+        device_uptime_seconds: req.device_uptime_seconds,
+        thermal_throttling: req.thermal_throttling,
+        bsp_version: req.bsp_version.clone(),
+        sumd_driver_version: req.sumd_driver_version.clone(),
+        gpu_clock_mhz: req.gpu_clock_mhz,
+        mif_clock_mhz: req.mif_clock_mhz,
+        int_clock_mhz: req.int_clock_mhz,
+        battery_charging: req.battery_charging,
+        initial_temperature_celsius: req.initial_temperature_celsius,
+        max_temperature_celsius: req.max_temperature_celsius,
     }
 }
 
@@ -365,7 +233,7 @@ pub fn to_new_run(req: &CreateRunRequest, preview_length: usize) -> Result<NewRu
     if req.git_commit_sha.trim().is_empty() {
         return Err(field_err("git_commit_sha", "must not be empty"));
     }
-    let host = host_state(req, platform, device_class)?;
+    let host = host_state(&host_input(req), platform, device_class)?;
     let executable_sha256 = req
         .executable_sha256
         .clone()
@@ -473,13 +341,25 @@ async fn check_references(state: &AppState, run: &NewRun) -> Result<String, ApiE
         (status = 201, description = "The run was stored; the body is what `GET /api/v1/runs/{id}` returns.", body = RunResponse),
         (status = 400, description = "The body is not valid JSON, a field is invalid, the snapshot does not match the platform and device class, or a referenced model asset or artifact does not exist. `details.field` names the field.", body = ApiErrorResponse),
         (status = 409, description = "A run with this ID already exists; it is unchanged.", body = ApiErrorResponse),
+        (status = 413, description = "The body exceeds the maximum run record size (2 MiB).", body = ApiErrorResponse),
         (status = 500, description = "Internal storage error.", body = ApiErrorResponse),
     )
 )]
-async fn create_run(State(state): State<AppState>, body: Bytes) -> Response {
-    // Parse by hand so a malformed body or unknown enum value gets the
-    // consistent envelope rather than the JSON extractor's plain-text
-    // rejection.
+async fn create_run(State(state): State<AppState>, request: Request) -> Response {
+    // Read and parse the body by hand so an oversized body, a malformed
+    // body, or an unknown enum value all get the consistent envelope rather
+    // than an extractor's plain-text rejection.
+    let body = match Bytes::from_request(request, &()).await {
+        Ok(body) => body,
+        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            return ApiError::payload_too_large("run body exceeds the maximum size")
+                .into_response();
+        }
+        Err(rejection) => {
+            return ApiError::invalid_request(format!("unreadable run body: {rejection}"))
+                .into_response();
+        }
+    };
     let req: CreateRunRequest = match serde_json::from_slice(&body) {
         Ok(req) => req,
         Err(err) => {
@@ -496,12 +376,19 @@ async fn create_run(State(state): State<AppState>, body: Bytes) -> Response {
     };
 
     if let Err(err) = insert_run(&state.pool, &new_run).await {
-        let text = err.to_string();
-        if text.contains("UNIQUE constraint failed: runs.id") {
+        if err.is_unique_violation() {
             return ApiError::conflict(format!("run {} already exists", new_run.id)).into_response();
         }
+        if err.is_foreign_key_violation() {
+            // A reference that passed `check_references` a moment ago no
+            // longer resolves; report it as the client-side problem it is.
+            return ApiError::invalid_request(
+                "a referenced model asset or artifact no longer exists",
+            )
+            .into_response();
+        }
         // Validation above mirrors every CHECK; reaching here is a bug.
-        eprintln!("run insert failed after validation: {text}");
+        eprintln!("run insert failed after validation: {err}");
         return ApiError::internal("internal error storing run").into_response();
     }
 

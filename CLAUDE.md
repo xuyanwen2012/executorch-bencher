@@ -45,9 +45,12 @@ bun run dev            # http://localhost:3001, proxies /api and /health to BACK
 just serve-dashboard   # from repo root: port 3101, proxying to the just backend on 3100
 bun run build          # writes dist/. NEVER bare `bun build` - it skips the Tailwind plugin
 bun run check          # tsc --noEmit + generated-API-type drift check
-bun test               # unit tests (happy-dom preloaded via bunfig.toml)
+bun test               # unit + component tests (happy-dom preloaded via bunfig.toml; tests/render.tsx has act-based mount/click/type helpers)
 bun test src/lib/format.test.ts   # single test file
 bun run generate-api   # regenerate src/api/schema.d.ts from ../openapi/openapi.json
+bun run smoke          # scripts/smoke.tsx against a running dev server (DASHBOARD_URL, default :3101); also `just smoke-dashboard`
+bun run live-check <model.pte>   # end-to-end live-refresh check (Playwright chromium); `just live-check-dashboard`
+bun run screenshot     # page screenshots via Playwright; `just screenshot-dashboard`
 ```
 
 ### After any route or schema change (mandatory)
@@ -74,8 +77,8 @@ module with no HTTP knowledge:
 | `runs_api.rs` | `runs.rs` (`NewRun`, `insert_run`, `get_run`, `list_runs`, cursor paging) | `GET /api/v1/runs`, `GET /api/v1/runs/{id}` |
 | `results_api.rs` | `results.rs` (group-by-configuration median/min/max/n, computed in Rust, not SQL) | `GET /api/v1/results` |
 | `artifacts_api.rs` | `artifact_store.rs` (content-addressed `sha256/<prefix>/<sha256>`, temp-then-rename, zstd for some kinds) | `POST/GET /api/v1/artifacts...` |
-| `models_api.rs` | `model_registry.rs` (`ModelStorage` trait; only `ExternalModelStorage` exists, registers `.pte` in place) | `/api/v1/models...` |
-| `runs_write_api.rs` | `runs.rs` + `domain::validate_*` | `POST /api/v1/runs` |
+| `models_api.rs` | `model_registry.rs` (`ModelStorage` trait; only `ExternalModelStorage` exists, registers `.pte` in place; the HTTP route confines paths to absolute `.pte` files beneath `MODEL_REGISTER_ROOTS`) | `/api/v1/models...` |
+| `runs_write_api.rs` | `runs.rs` + `domain::validate_*` + `host_rules.rs` | `POST /api/v1/runs` |
 | `events_api.rs` | `events.rs` (`EventBus`, broadcast) | `GET /api/v1/events` (SSE) |
 | `version_api.rs` | hand-maintained `API_VERSION` / `SCHEMA_VERSION` consts | `GET /api/v1/version` |
 
@@ -88,10 +91,18 @@ SPA fallback that never shadows registered routes.
 **Shared pieces.** `domain.rs` holds validated value types (`Sha256Hex`, `ExitStatus`,
 `CorrectnessResult`) that enforce invariants at the application boundary.
 `api_error.rs` is the single JSON error envelope (`{ "error": { code, message, ... } }`);
-match on `code`, not `message`. `config.rs` parses every env var (data roots,
-`LISTEN_ADDR`, `DASHBOARD_DIST`, `MAX_ARTIFACT_UPLOAD_BYTES`, etc.) and creates the
-storage roots at startup. `integrity.rs` is a read-only report and is deliberately
-never run at startup.
+match on `code`, not `message`. Handlers take `Query`/`Path`/`Json` from `extract.rs`,
+not from axum directly, so extractor rejections use the envelope too; a handler panic
+becomes a `500` envelope via `CatchPanicLayer` in `http.rs`. `host_rules.rs` is the one
+implementation of the platform/device-class snapshot rules (`HostInput` ->
+`HostState`), shared by the HTTP write path and the importer. `config.rs` parses every
+env var (data roots, `MODEL_REGISTER_ROOTS`, `LISTEN_ADDR`, `DASHBOARD_DIST`,
+`MAX_ARTIFACT_UPLOAD_BYTES`, etc.) and creates the storage roots at startup.
+`integrity.rs` is a read-only report and is deliberately never run at startup.
+`version_api::API_VERSION` is also the OpenAPI `info.version`; bump it on contract
+changes, and `tests/version_consistency.rs` keeps it, the document, and the DB schema
+version in agreement. There is no authentication anywhere; the service is for a trusted
+lab network.
 
 **Platforms and device classes.** Every run has `platform` (`android` | `linux`),
 `device_class` (`internal` lab device | `external` retail phone or Linux box), and
@@ -141,9 +152,21 @@ Bun-native: `dev.ts` uses `Bun.serve` routes with an HTML entrypoint import and
 proxies `/api/*` and `/health` to the backend so the browser is same-origin;
 `build.ts` runs `Bun.build` with `bun-plugin-tailwind`. There is no Vite/webpack.
 
+`dev.ts` also proxies `/docs`, `/docs/*`, and `/openapi.json`, forwards the request
+signal so a closed tab tears down its upstream SSE subscription, and strips
+hop-by-hop and content-encoding headers.
+
 `src/api/client.ts` wraps `openapi-fetch` with the generated `paths` type
 (`baseUrl: ""`, same-origin in both dev and production). Data fetching is
-TanStack Query with `retry: false` by design. Routing is `react-router` with three
-pages under `Layout`: `ResultsPage` (`/`), `RunsPage` (`/runs`), `RunDetailPage`
-(`/runs/:id`). Pure helpers in `src/lib/` (`collapse`, `filters`, `format`) carry
-the unit tests.
+TanStack Query with `retry: false` by design and `placeholderData: keepPreviousData`
+on the list queries so filter edits do not flash a loading state. Routing is
+`react-router` with three pages under `Layout`: `ResultsPage` (`/`), `RunsPage`
+(`/runs`), `RunDetailPage` (`/runs/:id`, sections in `src/pages/run-detail/`).
+Filter edits update the URL with `replace: true`; free-text filters are debounced in
+`FilterBar` (250 ms). `src/lib/live.ts` owns the SSE state machine (`openLiveStream`,
+exponential reopen on a closed `EventSource`, 1 s doubling to 30 s) and the event
+coalescer; a `run.created` trims the runs infinite query to its first page before
+invalidating. Filter enum arrays in `src/lib/filters.ts` are typed from the generated
+schema so an added variant fails `tsc`. Pure helpers in `src/lib/` (`collapse`,
+`filters`, `format`, `live`, `spread`, `resultsColumns`) carry the unit tests;
+components and pages have act-based tests next to them.

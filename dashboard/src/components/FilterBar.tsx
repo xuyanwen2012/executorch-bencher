@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { FOCUS_RING } from "./focus";
 
 export interface FilterField<K extends string> {
   key: K;
@@ -20,16 +21,27 @@ export interface ExtraChip {
 interface Props<K extends string> {
   fields: readonly FilterField<K>[];
   values: Partial<Record<K, string>>;
+  /** Called with the committed value: at once for a select or a chip, and
+   * after `debounceMs` of quiet (or Enter / blur) for a text input. */
   onChange: (key: K, value: string) => void;
   onClear?: () => void;
   extraChips?: readonly ExtraChip[];
   /** Rendered on the filter bar's top rail, e.g. a result count. */
   status?: ReactNode;
+  /** Quiet time before a text edit is committed. */
+  debounceMs?: number;
 }
 
-const CONTROL =
-  "w-full rounded-sm border bg-paper px-2 py-1.5 text-[13px] text-ink transition-colors focus:border-prefill";
+/** Default quiet time before a typed filter reaches the URL and the query. */
+export const FILTER_DEBOUNCE_MS = 250;
 
+const CONTROL = `w-full rounded-sm border bg-paper px-2 py-1.5 text-[13px] text-ink transition-colors focus:border-prefill ${FOCUS_RING}`;
+
+/**
+ * Text inputs are edited locally and committed after a pause, so a filter
+ * typed character by character produces one URL entry and one request
+ * rather than one per keystroke. Selects and chips commit immediately.
+ */
 export function FilterBar<K extends string>({
   fields,
   values,
@@ -37,7 +49,67 @@ export function FilterBar<K extends string>({
   onClear,
   extraChips = [],
   status,
+  debounceMs = FILTER_DEBOUNCE_MS,
 }: Props<K>) {
+  // A draft exists only while a text input is ahead of the committed value.
+  const [drafts, setDrafts] = useState<Partial<Record<K, string>>>({});
+  const timers = useRef(new Map<K, ReturnType<typeof setTimeout>>());
+  const latestOnChange = useRef(onChange);
+  latestOnChange.current = onChange;
+
+  const cancel = (key: K) => {
+    const handle = timers.current.get(key);
+    if (handle !== undefined) clearTimeout(handle);
+    timers.current.delete(key);
+  };
+  const cancelAll = () => {
+    for (const handle of timers.current.values()) clearTimeout(handle);
+    timers.current.clear();
+  };
+  useEffect(() => cancelAll, []);
+
+  // Once the committed value catches up with a draft the draft is done;
+  // this also keeps the input honest when the URL changes underneath it.
+  useEffect(() => {
+    setDrafts((current) => {
+      let next: Partial<Record<K, string>> | undefined;
+      for (const key of Object.keys(current) as K[]) {
+        if (timers.current.has(key)) continue;
+        if ((values[key] ?? "") === current[key]) {
+          next ??= { ...current };
+          delete next[key];
+        }
+      }
+      return next ?? current;
+    });
+  }, [values]);
+
+  const commit = (key: K, value: string) => {
+    cancel(key);
+    latestOnChange.current(key, value);
+  };
+  const edit = (key: K, value: string) => {
+    setDrafts((current) => ({ ...current, [key]: value }));
+    cancel(key);
+    timers.current.set(
+      key,
+      setTimeout(() => {
+        timers.current.delete(key);
+        latestOnChange.current(key, value);
+      }, debounceMs),
+    );
+  };
+  const flush = (key: K) => {
+    if (!timers.current.has(key)) return;
+    commit(key, drafts[key] ?? "");
+  };
+  const clearAll = () => {
+    cancelAll();
+    setDrafts({});
+    onClear?.();
+  };
+
+  const shown = (key: K) => drafts[key] ?? values[key] ?? "";
   const activeFields = fields.filter((f) => (values[f.key] ?? "") !== "");
   const activeCount = activeFields.length + extraChips.length;
 
@@ -53,13 +125,17 @@ export function FilterBar<K extends string>({
           <span className="text-xs text-ink-3">showing everything</span>
         )}
         <div className="ml-auto flex items-center gap-3">
-          {status ? <span className="text-xs text-ink-2">{status}</span> : null}
+          {/* Always in the tree so the live region exists before it first
+              announces; screen readers ignore regions that appear populated. */}
+          <span className="text-xs text-ink-2" aria-live="polite" data-testid="filter-status">
+            {status}
+          </span>
           {onClear ? (
             <button
               type="button"
-              onClick={onClear}
+              onClick={clearAll}
               disabled={activeCount === 0}
-              className="eyebrow rounded-sm border border-rule px-2 py-1 text-ink-2 hover:border-rule-strong hover:bg-wash disabled:pointer-events-none disabled:opacity-35"
+              className={`eyebrow rounded-sm border border-rule px-2 py-1 text-ink-2 hover:border-rule-strong hover:bg-wash disabled:pointer-events-none disabled:opacity-35 ${FOCUS_RING}`}
             >
               Clear all
             </button>
@@ -69,7 +145,7 @@ export function FilterBar<K extends string>({
 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-3 gap-y-2.5 px-3 py-3">
         {fields.map((field) => {
-          const value = values[field.key] ?? "";
+          const value = shown(field.key);
           const active = value !== "";
           const id = `filter-${field.key}`;
           const border = active ? "border-prefill/60 bg-prefill-soft/40" : "border-rule";
@@ -83,7 +159,7 @@ export function FilterBar<K extends string>({
                 <select
                   id={id}
                   value={value}
-                  onChange={(e) => onChange(field.key, e.target.value)}
+                  onChange={(e) => commit(field.key, e.target.value)}
                   className={`${CONTROL} ${border}`}
                 >
                   <option value="">Any</option>
@@ -104,7 +180,11 @@ export function FilterBar<K extends string>({
                   id={id}
                   value={value}
                   placeholder={field.placeholder ?? "Any"}
-                  onChange={(e) => onChange(field.key, e.target.value)}
+                  onChange={(e) => edit(field.key, e.target.value)}
+                  onBlur={() => flush(field.key)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") flush(field.key);
+                  }}
                   className={`${CONTROL} ${border} font-mono placeholder:font-sans placeholder:text-ink-3`}
                 />
               )}
@@ -121,7 +201,7 @@ export function FilterBar<K extends string>({
               key={field.key}
               label={field.label}
               value={labelFor(field, values[field.key] ?? "")}
-              onRemove={() => onChange(field.key, "")}
+              onRemove={() => commit(field.key, "")}
             />
           ))}
           {extraChips.map((chip) => (
@@ -149,7 +229,7 @@ function Chip({ label, value, onRemove }: { label: string; value: string; onRemo
         type="button"
         onClick={onRemove}
         aria-label={`Remove the ${label} filter`}
-        className="rounded-[2px] px-1 leading-none text-ink-3 hover:bg-danger-soft hover:text-danger"
+        className={`rounded-[2px] px-1 leading-none text-ink-3 hover:bg-danger-soft hover:text-danger ${FOCUS_RING}`}
       >
         ×
       </button>

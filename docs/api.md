@@ -150,3 +150,16 @@ way, coalescing bursts into one refresh.
 
 `api_version` moved to `1.3` when run creation, the model hash lookup,
 and the event stream were added (additive).
+
+`api_version` moved to `1.4` when error handling was tightened: every
+rejection now uses the JSON envelope, including the ones raised before a
+handler runs (a malformed query parameter such as `?limit=abc`, a path
+parameter that is not a UUID, a JSON body with the wrong content type),
+which previously came back as plain text; `POST /api/v1/runs` documents
+`413 payload_too_large` for a body over 2 MiB; and
+`POST /api/v1/models/register` rejects (400, `details.field` = `path`) any
+path that is not an absolute `.pte` file beneath one of the server's
+registrable model roots (`MODEL_REGISTER_ROOTS`). `info.version` in the
+generated document is now the same constant the version endpoint reports,
+and `tests/version_consistency.rs` checks that and the database schema
+version against each other.

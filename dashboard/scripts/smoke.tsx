@@ -2,9 +2,12 @@
 // running dev server (or backend) and checks each page's observable
 // behavior. Not part of `bun test` because it needs live servers.
 //
-//   SCENARIO=seeded BASE_URL=http://127.0.0.1:3001 DEVDATA=<data root> bun run scripts/smoke.tsx
-//   SCENARIO=empty  BASE_URL=<backend with an empty database>          bun run scripts/smoke.tsx
-//   SCENARIO=dead   BASE_URL=<nothing listening>                        bun run scripts/smoke.tsx
+//   SCENARIO=seeded DASHBOARD_URL=http://127.0.0.1:3101 DEVDATA=<data root> bun run smoke
+//   SCENARIO=empty  DASHBOARD_URL=<backend with an empty database>          bun run smoke
+//   SCENARIO=dead   DASHBOARD_URL=<nothing listening>                        bun run smoke
+//
+// The target defaults to the justfile's dashboard port: DASHBOARD_URL, else
+// http://127.0.0.1:$PORT, else http://127.0.0.1:3101.
 //
 // `seeded` expects the database produced by `cargo run --example
 // e2e_insert_retrieve` on a fresh data root; DEVDATA (optional) enables the
@@ -12,7 +15,7 @@
 // scheduler is bound to the window it first rendered in.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
-const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:3001";
+const BASE_URL = (process.env.DASHBOARD_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3101}`).replace(/\/$/, "");
 const SCENARIO = process.env.SCENARIO ?? "seeded";
 GlobalRegistrator.register({ url: `${BASE_URL}/` });
 
@@ -51,28 +54,39 @@ async function json(path: string): Promise<any> {
   return res.json();
 }
 
+/** Body rows only: the runs table also carries one heading row per day. */
+function dataRows(root: ParentNode): Element[] {
+  return Array.from(root.querySelectorAll("tbody tr")).filter((tr) => tr.querySelector("td"));
+}
+
+/** The chips flag by their hover text; scoped to `tbody` so the legend's
+ * own sample chips do not count. */
+const DIRTY_CHIP = '[title^="Built from a working tree with uncommitted changes"]';
+const THROTTLED_CHIP = '[title^="The device reported thermal throttling"]';
+const RUNS_LISTED = (t: string) => t.includes("matching these filters are listed.") || t.includes("listed so far.");
+
 if (SCENARIO === "seeded") {
 // ---- Results page -------------------------------------------------------
 {
   const c = await render("/");
   const text = await waitFor(c, (t) => t.includes("tok/s") && !t.includes("Loading"));
   check("results: rows render with the newest commit first", text.indexOf("e2e1111111") < text.indexOf("e2e0000000"), text.slice(0, 200));
-  check("results: dirty row is marked", text.includes("+dirty"));
-  check("results: median with range and n", /120\.4.*118\.9–123\.7, n=3/.test(text.replace(/\s+/g, " ")));
-  check("results: failure and throttle badges", text.includes("1 failed") && text.includes("1 throttled"));
+  check("results: dirty row is marked", !!c.querySelector(`tbody ${DIRTY_CHIP}`));
+  check("results: median with range", /120\.4.*118\.9–123\.7/.test(text.replace(/\s+/g, " ")));
+  check("results: failure and throttle badges", text.includes("1 failed") && !!c.querySelector(`tbody ${THROTTLED_CHIP}`));
   const shared = c.querySelector('[data-testid="shared-configuration"]')?.textContent ?? "";
   check("results: constant columns collapsed into the shared line", shared.includes("BSP bsp-1.0") && shared.includes("GPU MHz 980"));
   const headers = Array.from(c.querySelectorAll("th")).map((th) => th.textContent?.trim());
   check("results: constant columns hidden from the table", !headers.includes("BSP") && !headers.includes("GPU MHz"));
   check("results: absent decode is marked, not zero", text.includes("not recorded") && !/\b0\.0\b/.test(text));
-  const runsLink = Array.from(c.querySelectorAll("a")).find((a) => a.textContent?.startsWith("runs ("));
+  const runsLink = Array.from(c.querySelectorAll("a")).find((a) => /^\d[\d,]* runs? →$/.test(a.textContent?.trim() ?? ""));
   check("results: rows link to their runs with the full key", !!runsLink && /device_serial=.*model_asset_id=.*git_commit_sha=.*git_dirty=.*sumd_driver_version=.*bsp_version=.*gpu_clock_mhz=.*mif_clock_mhz=.*int_clock_mhz=.*prompt_sha256=/.test(runsLink?.getAttribute("href") ?? ""));
 }
 {
   const c = await render("/?all=1");
   await waitFor(c, (t) => t.includes("tok/s") && !t.includes("Loading"));
   const headers = Array.from(c.querySelectorAll("th")).map((th) => th.textContent?.trim());
-  check("results: show-all toggle reveals every key column", headers.includes("BSP") && headers.includes("GPU MHz") && headers.includes("Input tokens"));
+  check("results: show-all toggle reveals every key column", headers.includes("BSP") && headers.includes("GPU MHz") && headers.includes("Input tok"));
 }
 {
   const c = await render("/?device_serial=nope");
@@ -84,7 +98,7 @@ if (SCENARIO === "seeded") {
 {
   const c = await render("/?device_serial=e2e-device-001&git_dirty=true");
   const text = await waitFor(c, (t) => t.includes("tok/s") && !t.includes("Loading"));
-  check("results: conjunctive filters narrow rows", text.includes("+dirty") && !text.includes("1 failed"));
+  check("results: conjunctive filters narrow rows", !!c.querySelector(`tbody ${DIRTY_CHIP}`) && !text.includes("1 failed"));
   const select = c.querySelector<HTMLSelectElement>("#filter-git_dirty");
   check("results: dirty filter select reflects URL", select?.value === "true");
 }
@@ -92,17 +106,20 @@ if (SCENARIO === "seeded") {
 // ---- Runs page ----------------------------------------------------------
 {
   const c = await render("/runs");
-  const text = await waitFor(c, (t) => t.includes("All matching runs loaded") || t.includes("Load more"));
+  const text = await waitFor(c, RUNS_LISTED);
   check("runs: lists seeded runs", text.includes("e2e-device-001") && text.includes("38.2"));
   check("runs: absent decode marked", text.includes("not recorded"));
-  check("runs: crashed run shows its status and throttling", text.includes("crashed") && text.includes("throttled"));
-  const rows = c.querySelectorAll("tbody tr");
+  check(
+    "runs: crashed run shows its status and throttling",
+    !!c.querySelector('tbody [title="Process exit status: crashed"]') && !!c.querySelector(`tbody ${THROTTLED_CHIP}`),
+  );
+  const rows = dataRows(c);
   check("runs: newest first", rows.length === 6, `${rows.length} rows`);
 }
 {
   const c = await render("/runs?exit_status=crashed&device_serial=e2e-device-001");
-  const text = await waitFor(c, (t) => t.includes("All matching runs loaded"));
-  check("runs: conjunctive filter", c.querySelectorAll("tbody tr").length === 1 && text.includes("crashed"));
+  const text = await waitFor(c, (t) => t.includes("matching these filters are listed."));
+  check("runs: conjunctive filter", dataRows(c).length === 1 && text.includes("crashed"));
   const select = c.querySelector<HTMLSelectElement>("#filter-exit_status");
   check("runs: filter control reflects the URL", select?.value === "crashed");
 }
@@ -127,9 +144,13 @@ if (SCENARIO === "seeded") {
     prompt_sha256: row.prompt_sha256,
   });
   const c = await render(`/runs?${params}`);
-  const text = await waitFor(c, (t) => t.includes("All matching runs loaded"));
-  check("runs: results-row link shows exactly the contributing runs", c.querySelectorAll("tbody tr").length === row.total_runs, `${c.querySelectorAll("tbody tr").length} vs ${row.total_runs}`);
-  check("runs: linked-only key filters shown as removable chips", text.includes("gpu_clock_mhz=980") && text.includes("prompt_sha256="));
+  const text = await waitFor(c, (t) => t.includes("matching these filters are listed."));
+  check("runs: results-row link shows exactly the contributing runs", dataRows(c).length === row.total_runs, `${dataRows(c).length} vs ${row.total_runs}`);
+  const chipLabels = Array.from(c.querySelectorAll("button[aria-label^='Remove the ']")).map((b) => b.getAttribute("aria-label"));
+  check(
+    "runs: linked-only key filters shown as removable chips",
+    chipLabels.includes("Remove the GPU clock filter") && chipLabels.includes("Remove the Prompt hash filter") && text.includes("980"),
+  );
 }
 {
   // Paging: limit is fixed at 50 in the UI, so exercise the API contract
@@ -155,13 +176,15 @@ if (SCENARIO === "seeded") {
   check("detail: UTC timestamp shown alongside local", /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/.test(flat));
   check("detail: absent fields marked", flat.includes("not recorded"));
   const stdout = c.querySelector('[data-testid="artifact-stdout"]');
-  check("detail: stdout artifact available with download and view", !!stdout && stdout.textContent!.includes("available") && !!stdout.querySelector("a[download]") && Array.from(stdout.querySelectorAll("button")).some((b) => b.textContent === "View"));
-  const viewButton = Array.from(stdout!.querySelectorAll("button")).find((b) => b.textContent === "View")!;
+  check("detail: stdout artifact available with download and view", !!stdout && stdout.textContent!.includes("available") && !!stdout.querySelector("a[download]") && Array.from(stdout.querySelectorAll("button")).some((b) => b.textContent === "View content"));
+  const viewButton = Array.from(stdout!.querySelectorAll("button")).find((b) => b.textContent === "View content")!;
   viewButton.click();
   const shown = await waitFor(stdout as HTMLElement, (t) => t.includes("prefill: 120.4 tok/s"));
   check("detail: inline view shows decompressed stdout", shown.includes("decode: 38.2 tok/s"));
-  const stderr = c.querySelector('[data-testid="artifact-stderr"]');
-  check("detail: missing slot shows none", !!stderr && stderr.textContent!.includes("none"));
+  // A slot with nothing attached has no card; it is named once in the
+  // "Not attached" line under the cards.
+  const notAttached = Array.from(c.querySelectorAll("p")).find((p) => p.textContent?.includes("Not attached"));
+  check("detail: missing slot listed as not attached", !c.querySelector('[data-testid="artifact-stderr"]') && !!notAttached && notAttached.textContent!.includes("stderr"));
   const output = c.querySelector('[data-testid="artifact-output"]');
   check("detail: uncompressed output artifact listed with a download link", !!output && output.textContent!.includes("available") && !!output.querySelector("a[download]"));
   check("detail: model summary", flat.includes("e2e-example-model") && flat.includes("available"));
@@ -215,7 +238,7 @@ if (SCENARIO === "dead") {
     const c = await render(path);
     const text = await waitFor(c, (t) => t.includes("unreachable"));
     const retry = Array.from(c.querySelectorAll("button")).find((b) => b.textContent === "Retry");
-    check(`unreachable: ${path} shows backend-unreachable with retry`, text.includes("Backend unreachable.") && !!retry, text.slice(0, 200));
+    check(`unreachable: ${path} shows backend-unreachable with retry`, text.includes("Backend unreachable") && !!retry, text.slice(0, 200));
   }
 }
 

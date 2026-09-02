@@ -65,34 +65,49 @@ configuration as returned by the grouped results operation, newest commit
 first. Each row SHALL show the commit (short SHA, branch, subject, and
 commit time when recorded, with a visible dirty marker when the working
 tree was dirty), the model (its `.pte` filename without extension), the
-device serial, the SUMD driver version, the BSP version, the GPU/MIF/INT
-clocks in MHz, the input token count, the succeeded-run count, prefill
-throughput as median with min–max in tokens per second, decode throughput
-likewise, a not-succeeded count and a correctness-failed count when
-nonzero, a throttled count when nonzero, and the latest run time. A
+platform, the host (device serial or hostname), the platform's own
+dimensions as key columns (SUMD driver version, BSP version, and the
+GPU/MIF/INT clocks in MHz for Android rows; the accelerator for Linux
+rows), the input token count, the succeeded-run count, prefill throughput
+as median with min–max in tokens per second, decode throughput likewise,
+a not-succeeded count and a correctness-failed count when nonzero, a
+throttled count when nonzero, and the latest run time. A dimension the
+row's platform does not have SHALL render as absent, not blank. A
 throughput statistic the backend reports as null SHALL be shown as an
 explicit absent marker, never as zero. The page SHALL offer a control to
 choose which throughput (prefill or decode) is emphasized, defaulting to
-prefill, and SHALL offer filters on device, model, branch, SUMD driver,
-BSP, and dirty flag whose options come from the response's `facets`. Active
-filters SHALL be reflected in the page URL. Each row SHALL link to the runs
-page pre-filtered to exactly that row's configuration key.
+prefill, and SHALL offer filters on platform, host, model, branch, SUMD
+driver, BSP, accelerator, and working-tree state whose options come from
+the response's `facets`. Active filters SHALL be reflected in the page
+URL. Each row SHALL link to the runs page pre-filtered to exactly that
+row's configuration key.
 
 #### Scenario: Repetitions appear as one row
 - **WHEN** several runs share one configuration key
 - **THEN** the results page shows a single row for them with the median,
   minimum, maximum, and count reported by the backend
 
+#### Scenario: Android and Linux rows appear together
+- **WHEN** both platforms have configurations for one commit
+- **THEN** each row shows its platform and host, Android rows show driver,
+  BSP, and clocks, Linux rows show the accelerator, and the other
+  platform's columns read as absent
+
 #### Scenario: Filtering and sharing a filtered view
-- **WHEN** a user filters by one device and one model
+- **WHEN** a user filters by one host and one model
 - **THEN** only matching rows are shown and the page URL encodes both
   filters such that opening that URL restores the same view
 
+#### Scenario: Filtering by platform
+- **WHEN** the user selects `linux` in the platform filter
+- **THEN** only Linux rows remain and the URL carries `platform=linux`
+
 #### Scenario: A row links to its runs
 - **WHEN** a user activates a results row
-- **THEN** the runs page opens filtered to that row's device, model,
-  commit, dirty flag, driver, BSP, clocks, and prompt, listing exactly the
-  runs that contributed to the row
+- **THEN** the runs page opens filtered to that row's platform, host,
+  model, commit, dirty flag, prompt, and the platform's own dimensions
+  (driver, BSP, and clocks, or accelerator), listing exactly the runs
+  that contributed to the row
 
 #### Scenario: A configuration with no succeeded runs
 - **WHEN** a row's throughput statistics are null because every run failed
@@ -173,25 +188,34 @@ record SHALL be displayed as absent, never as zero.
 Selecting a run SHALL open a detail view at a URL containing the run's ID,
 showing every field the single-run endpoint returns, grouped as: run
 metadata (timing, repetition, command line and arguments, input parameters,
-captured environment variables, collector and allowlist versions), device
-state (serial, BSP and driver versions, uptime, battery charging,
-temperatures, thermal throttling), performance configuration (GPU, MIF, and
-INT clocks with their MHz unit), build and workload identity (git commit,
-dirty flag, branch, commit time and subject, executable SHA-256, prompt
-SHA-256, token counts), and results (exit status, correctness result,
-prefill and decode throughput, output preview, error summary). The
-referenced model SHALL be shown with its name, SHA-256, and availability.
-Temperatures SHALL be labelled in degrees Celsius and throughput in tokens
-per second.
+captured environment variables, collector and allowlist versions), a host
+group rendered according to the run's platform, build and workload
+identity (git commit, dirty flag, branch, commit time and subject,
+executable SHA-256, prompt SHA-256, token counts), and results (exit
+status, correctness result, prefill and decode throughput, output preview,
+error summary). For an Android run the host group SHALL be "Device state"
+(serial, device model, BSP and driver versions, uptime, battery charging,
+temperatures, thermal throttling) plus "Performance configuration" (GPU,
+MIF, and INT clocks with their MHz unit); for a Linux run it SHALL be
+"Host" (hostname, OS, kernel, CPU model and count, memory, accelerator,
+and driver) with no device-state or clock group. An unknown executable
+hash SHALL render as absent. The referenced model SHALL be shown with its
+name, SHA-256, and availability. Temperatures SHALL be labelled in degrees
+Celsius and throughput in tokens per second.
 
 #### Scenario: Opening a run by URL
 - **WHEN** a user navigates directly to the detail URL for an existing run
 - **THEN** the view renders that run's complete record without first
   visiting the list
 
+#### Scenario: Opening a Linux run
+- **WHEN** the user opens a Linux run by URL
+- **THEN** the page shows a Host group with the OS, kernel, CPU model,
+  accelerator, and driver, and no Android device or clock group
+
 #### Scenario: Optional fields are shown as absent, not blank
 - **WHEN** a run has no finish time, no command line, no output preview,
-  no error summary, or no git metadata
+  no error summary, no git metadata, or no executable hash
 - **THEN** each such field is displayed with an explicit absent marker
   rather than an empty cell or `null`
 

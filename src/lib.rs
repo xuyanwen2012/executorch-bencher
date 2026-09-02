@@ -6,6 +6,8 @@ pub mod db;
 pub mod domain;
 pub mod events;
 pub mod events_api;
+pub mod extract;
+pub mod host_rules;
 pub mod http;
 pub mod integrity;
 pub mod model_registry;

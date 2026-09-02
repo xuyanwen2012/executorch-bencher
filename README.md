@@ -1,7 +1,15 @@
 # executorch-bencher
 
 Backend (Rust, Axum + SQLite) and dashboard (Bun + React + Tailwind) for
-collecting and viewing Android LLM benchmark runs.
+collecting and viewing LLM benchmark runs from Android phones and Linux
+hosts.
+
+**No authentication.** Neither the API nor the dashboard authenticates
+anything; the service is meant for a single workstation or a trusted lab
+network. Do not expose it to the internet. The one route that takes a
+server-side path, `POST /api/v1/models/register`, is confined to `.pte`
+files beneath `MODEL_REGISTER_ROOTS` (default: the model root) so an
+unauthenticated caller cannot probe or hash arbitrary server files.
 
 Runs come from two kinds of host: **Android phones** and **Linux boxes**.
 Every run also has a **device class**. `internal` devices are lab phones
@@ -150,9 +158,12 @@ data/<profile>/
 Each root can be overridden independently of `DATA_ROOT` via `ARTIFACT_ROOT`,
 `MODEL_ROOT`, `TEMPORARY_DIR`, and `TRASH_DIR` in `.env`. All four are
 created automatically on startup; startup fails with a clear error naming
-the specific root if any of them can't be created or written to. See
-`docs/storage.md` for the full storage design (deduplication, model
-registration, backups, retention).
+the specific root if any of them can't be created or written to.
+`MODEL_REGISTER_ROOTS` (colon-separated, default `MODEL_ROOT`) lists the
+directories `POST /api/v1/models/register` may register `.pte` files from;
+the real profile points it at the NFS model share. See `docs/storage.md`
+for the full storage design (deduplication, model registration, backups,
+retention).
 
 ## Offline SQLx query cache
 

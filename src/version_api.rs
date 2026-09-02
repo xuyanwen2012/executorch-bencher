@@ -9,11 +9,14 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 /// Hand-maintained compatibility constants, bumped manually as the contract
-/// evolves. There is no automatic derivation for `api_version`,
-/// `minimum_runner_version`, or `schema_version` - no Python runner exists
-/// yet to check compatibility against.
-const API_VERSION: &str = "1.3";
-const SCHEMA_VERSION: u32 = 1;
+/// evolves. `API_VERSION` is also the generated OpenAPI document's
+/// `info.version` (see `openapi.rs`), and `SCHEMA_VERSION` must equal the
+/// value the migrations write to `schema_metadata`; `tests/version_consistency.rs`
+/// ties the three together so they cannot drift silently. There is no
+/// automatic derivation for `minimum_runner_version` - no Python runner
+/// exists yet to check compatibility against.
+pub const API_VERSION: &str = "1.4";
+pub const SCHEMA_VERSION: u32 = 1;
 const MINIMUM_RUNNER_VERSION: &str = "0.1.0";
 
 /// API and schema compatibility information.

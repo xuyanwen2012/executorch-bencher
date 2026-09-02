@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "ExecuTorch Bencher API",
-    "description": "Internal Android LLM benchmark collection and analysis service. Provides HTTP endpoints to ingest, store, and retrieve benchmark run results, content-addressed artifacts, and registered model assets.",
-    "version": "1.0"
+    "description": "Internal LLM benchmark collection and analysis service for Android phones and Linux hosts. Provides HTTP endpoints to ingest, store, and retrieve benchmark run results, content-addressed artifacts, and registered model assets. The service has no authentication and is meant for a trusted lab network.",
+    "version": "1.4"
   },
   "paths": {
     "/api/v1/artifacts": {
@@ -343,7 +343,7 @@
             }
           },
           "400": {
-            "description": "The path does not exist or is not a regular file.",
+            "description": "The body is not valid JSON, or the path is not absolute, does not name a `.pte` file, does not exist, is not a regular file, or lies outside every registrable model root. `details.field` is `path`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -843,6 +843,16 @@
           },
           "409": {
             "description": "A run with this ID already exists; it is unchanged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body exceeds the maximum run record size (2 MiB).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1773,7 +1783,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Absolute path to an existing `.pte` file on the server's filesystem.\nExternal mode never copies this file - see\n`specs/artifact-storage` - \"External model assets are registered\nonce without copying\". Registering the same file's SHA-256 again\nreuses the cached checksum rather than rehashing or copying it.",
+            "description": "Absolute path to an existing `.pte` file on the server's filesystem,\nbeneath one of the server's registrable model roots\n(`MODEL_REGISTER_ROOTS`, default the model root). Symlinks are\nresolved before the root check, so neither `..` nor a symlink can\nescape a root. External mode never copies this file - see\n`specs/artifact-storage` - \"External model assets are registered\nonce without copying\". Registering the same file's SHA-256 again\nreuses the cached checksum rather than rehashing or copying it.",
             "example": "/data/models/llama-3-8b-instruct.pte"
           }
         }

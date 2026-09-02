@@ -42,7 +42,7 @@ async fn openapi_json_is_a_well_formed_document_with_expected_metadata() {
         doc["openapi"]
     );
     assert_eq!(doc["info"]["title"], "ExecuTorch Bencher API");
-    assert_eq!(doc["info"]["version"], "1.0");
+    assert_eq!(doc["info"]["version"], executorch_bencher::version_api::API_VERSION);
     assert!(
         doc["info"]["license"].is_null(),
         "license should be omitted"
@@ -317,7 +317,7 @@ async fn version_endpoint_matches_documented_schema_and_built_package_version() 
     let version = fetch_json(app, "/api/v1/version").await;
 
     assert_eq!(version["server_version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(version["api_version"], "1.3");
+    assert_eq!(version["api_version"], executorch_bencher::version_api::API_VERSION);
     assert_eq!(version["schema_version"], 1);
     assert_eq!(version["minimum_runner_version"], "0.1.0");
 }
