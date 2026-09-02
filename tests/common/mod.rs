@@ -133,7 +133,10 @@ pub fn external_android_device_state() -> AndroidDeviceState {
 /// Mutable access to a run's lab config; panics unless it is a lab Android run.
 #[allow(dead_code)]
 pub fn android_lab_mut(run: &mut NewRun) -> &mut AndroidLabConfig {
-    android_mut(run).lab.as_mut().expect("expected a lab android run")
+    android_mut(run)
+        .lab
+        .as_mut()
+        .expect("expected a lab android run")
 }
 
 /// `build_new_run` re-targeted at an external (retail) phone.

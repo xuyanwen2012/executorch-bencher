@@ -64,6 +64,23 @@ the dependency-free reference `examples/post_run.py`:
       --argv "..." --git-sha <sha> --repetition 0
 ```
 
+For collector development, `examples/mock_experiment.py` behaves like an
+external benchmark executable. It accepts input files and parameters, can
+produce a correct answer, an incorrect answer, or a crash, and writes fake
+counter dumps plus a ZIP artifact bundle and JSON result manifest:
+
+```sh
+printf '1 2 3\n' > /tmp/mock-input.txt
+python3 examples/mock_experiment.py \
+  --input /tmp/mock-input.txt --scale 2.5 --bias 1 --mode success \
+  --artifact-dir /tmp/mock-counters --result-json /tmp/mock-result.json
+cargo test --test mock_experiment
+```
+
+The integration test records the complete argv, input parameters, input,
+stdout, stderr, output bundle, correctness result, and crash log in an
+isolated mock database, then reads every referenced artifact back.
+
 ## Importing benchmark logs
 
 Logs that predate a collector: existing `llama_main` logs (lines of

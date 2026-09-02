@@ -188,3 +188,18 @@ the device was unreachable is a run with `exit_status` `crashed` or
 `output_token_count` 0, and an `error_summary`. The results view counts it
 as not succeeded and keeps it out of every statistic, which is exactly the
 information a reader wants.
+
+## Mock external experiment
+
+`examples/mock_experiment.py` is a standard-library-only fixture for testing
+a collector without a real model or accelerator. Its `--mode` is `success`,
+`incorrect`, or `crash`. In every mode it writes `--result-json` and a ZIP
+named beside it containing the complete `--artifact-dir`; crash mode exits 17
+after writing its counters and crash log. This lets a collector exercise the
+important rule that a failed process can still have useful artifacts.
+
+The current run schema has fixed artifact references rather than an arbitrary
+run-to-artifact relation. A collector that produces a directory should archive
+that directory and attach the archive as `output_artifact_id`, while retaining
+stdout, stderr, and crash logs in their dedicated fields. The integration test
+in `tests/mock_experiment.rs` demonstrates and verifies that representation.
